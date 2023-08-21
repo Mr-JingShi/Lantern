@@ -1,0 +1,56 @@
+buildscript {
+    repositories {
+        google()
+        mavenCentral()
+    }
+    dependencies {
+        classpath 'com.android.tools.build:gradle:7.1.2'
+    }
+}
+
+allprojects {
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+
+task clean(type: Delete) {
+    delete rootProject.buildDir
+}
+
+ext {
+    minSdkVersion = 16
+    compileSdkVersion = 31
+    targetSdkVersion = 31
+    buildToolsVersion = "31.0.0"
+    javaVersion = JavaVersion.VERSION_1_7
+    ndkVersion = "21.4.7075529"
+    cmakeVersion = "3.18.1"
+    abiFilters = "armeabi-v7a"
+    useASAN = false
+    dependencyOnLocalLibrary = true
+    useCppSharedLibrary = true
+
+    POM_GROUP_ID = "com.amap"
+    POM_ARTIFACT_ID = "lantern"
+    POM_VERSION_NAME = "1.0.1"
+
+    POM_NAME = "lantern sdk"
+    POM_DESCRIPTION = "lantern SDK for android"
+    POM_URL = ""
+    POM_INCEPTION_YEAR = "2023"
+    POM_PACKAGING = "aar"
+
+    POM_SCM_CONNECTION = ""
+
+    POM_ISSUE_SYSTEM = ""
+    POM_ISSUE_URL = ""
+
+    POM_LICENCE_NAME = "The MIT License"
+    POM_LICENCE_URL = "https://opensource.org/licenses/MIT"
+    POM_LICENCE_DIST = "repo"
+
+    POM_DEVELOPER_ID = "Mr-JingShi"
+    POM_DEVELOPER_NAME = "苏明白"
+}

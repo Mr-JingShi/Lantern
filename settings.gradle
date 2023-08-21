@@ -1,0 +1,3 @@
+rootProject.name = "AndroidFontsExt"
+include ':lantern'
+include ':sample'

@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="fill_parent"
+    android:layout_height="fill_parent"
+    android:orientation="vertical"
+    tools:context=".SampleActivity">
+
+    <ScrollView
+        android:layout_width="fill_parent"
+        android:layout_height="wrap_content">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+
+            <TextView style="@style/Theme.TextView.Top"
+                android:id="@+id/check"
+                android:onClick="on_check_clicked"
+                android:text="welcome to AndroidFontExt Sample"/>
+
+            <Button style="@style/Theme.Button"
+                android:id="@+id/test_ja"
+                android:onClick="on_test_ja_clicked"
+                android:text="日语--高德地图" />
+            <Button style="@style/Theme.Button"
+                android:id="@+id/test_style"
+                android:onClick="on_test_style_clicked"
+                android:text="style组合字体" />
+            <Button style="@style/Theme.Button"
+                android:id="@+id/test_emojj"
+                android:onClick="on_test_emojj_clicked"
+                android:text="Emoji" />
+            <Button style="@style/Theme.Button"
+                android:id="@+id/test_symbol"
+                android:onClick="on_test_symbol_clicked"
+                android:text="特殊符号" />
+            <Button style="@style/Theme.Button"
+                android:id="@+id/test_unknow"
+                android:onClick="on_test_unknow_clicked"
+                android:text="生僻字" />
+            <Button style="@style/Theme.Button"
+                android:id="@+id/test_font"
+                android:onClick="on_test_font_clicked"
+                android:text="私有字体库" />
+            <Button style="@style/Theme.Button"
+                android:id="@+id/test_next"
+                android:text="请继续下一个测试：【设置/个性化】中自定义字体"/>
+
+        </LinearLayout>
+    </ScrollView>
+</LinearLayout>
