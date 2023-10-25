@@ -1,0 +1,278 @@
+#pragma once
+
+#include <stddef.h>
+
+#include "lantern_inner.spp"
+
+// FontCollection::~FontCollection()
+static size_t get_fontFamily_vector_offset()
+{
+    size_t offset = 0;
+
+    switch (sdk_ver_)
+    {
+        /* class FontCollection {
+            uint32_t mId;
+            uint32_t mMaxChar;
+            std::vector<std::shared_ptr<FontFamily>> mFamilies;
+        }; */
+        case __ANDROID_API_R__: // 11
+        case __ANDROID_API_Q__: // 10
+        case __ANDROID_API_P__: // 9
+        case __ANDROID_API_O_MR1__: // 8.1
+        case __ANDROID_API_O__: // 8.0
+            offset = 0x08;
+            break;
+
+            /* class MinikinRefCounted {
+                virtual ~MinikinRefCounted() { };
+                int mRefcount_;
+            };
+            class FontCollection : public MinikinRefCounted {
+                uint32_t mId;
+                uint32_t mMaxChar;
+                std::vector<FontFamily*> mFamilies;
+            }; */
+        case __ANDROID_API_N_MR1__: // 7.1
+        case __ANDROID_API_N__: // 7.0
+        case __ANDROID_API_M__: // 6.0
+        case __ANDROID_API_L_MR1__: // 5.1
+        case __ANDROID_API_L__: // 5.0
+        default:
+            offset = 0x10;
+            break;
+    }
+
+    return offset;
+}
+
+// FontCollection::~FontCollection()
+static size_t get_fontFamily_vector_step()
+{
+    size_t step = 0;
+
+    switch (sdk_ver_)
+    {
+        // std::vector<std::shared_ptr<FontFamily>> mFamilies;
+        case __ANDROID_API_R__: // 11
+        case __ANDROID_API_Q__: // 10
+        case __ANDROID_API_P__: // 9
+        case __ANDROID_API_O_MR1__: // 8.1
+        case __ANDROID_API_O__: // 8.0
+            step = 0x08;
+            break;
+
+            // std::vector<FontFamily*> mFamilies;
+        case __ANDROID_API_N_MR1__: // 7.1
+        case __ANDROID_API_N__: // 7.0
+        case __ANDROID_API_M__: // 6.0
+        case __ANDROID_API_L_MR1__: // 5.1
+            step = 0x04;
+            break;
+
+            /* struct FontInstance {
+                SparseBitSet* mCoverage;
+                FontFamily* mFamily;
+            }; */
+            // std::vector<FontInstance> mInstances;
+        case __ANDROID_API_L__: // 5.0
+        default:
+            step = 0x08;
+            break;
+    }
+
+    return step;
+}
+
+// FontCollection::~FontCollection()
+static size_t get_fontFamily_offset()
+{
+    size_t offset = 0;
+
+    switch (sdk_ver_)
+    {
+        // std::vector<std::shared_ptr<FontFamily>> mFamilies;
+        case __ANDROID_API_R__: // 11
+        case __ANDROID_API_Q__: // 10
+        case __ANDROID_API_P__: // 9
+        case __ANDROID_API_O_MR1__: // 8.1
+        case __ANDROID_API_O__: // 8.0
+
+            // std::vector<FontFamily*> mFamilies;
+        case __ANDROID_API_N_MR1__: // 7.1
+        case __ANDROID_API_N__: // 7.0
+        case __ANDROID_API_M__: // 6.0
+        case __ANDROID_API_L_MR1__: // 5.1
+            offset = 0x00;
+            break;
+
+            /* struct FontInstance {
+                SparseBitSet* mCoverage;
+                FontFamily* mFamily;
+            }; */
+            // std::vector<FontInstance> mInstances;
+        case __ANDROID_API_L__: // 5.0
+        default:
+            offset = 0x04;
+            break;
+    }
+
+    return offset;
+}
+
+// FontFamily::~FontFamily()
+static size_t get_font_vector_offset()
+{
+    size_t offset = 0;
+
+    switch (sdk_ver_)
+    {
+        /* enum class FamilyVariant : uint8_t {
+            DEFAULT = 0,  // Must be the same as FontConfig.VARIANT_DEFAULT
+            COMPACT = 1,  // Must be the same as FontConfig.VARIANT_COMPACT
+            ELEGANT = 2,  // Must be the same as FontConfig.VARIANT_ELEGANT
+        };
+        class FontFamily {
+            uint32_t mLocaleListId;
+            FamilyVariant mVariant;
+            std::vector<Font> mFonts;
+        }; */
+        case __ANDROID_API_R__: // 11
+        case __ANDROID_API_Q__: // 10
+            /* class FontFamily {
+                uint32_t mLangId;
+                int mVariant;
+                std::vector<Font> mFonts;
+            }; */
+        case __ANDROID_API_P__: // 9
+            if (::strcasestr(brand_.c_str(), "HUAWEI") || ::strcasestr(brand_.c_str(), "HONOR"))
+            {
+                offset = 0x00;
+                break;
+            }
+        case __ANDROID_API_O_MR1__: // 8.1
+        case __ANDROID_API_O__: // 8.0
+            offset = 0x08;
+            break;
+
+            /* class MinikinRefCounted {
+                virtual ~MinikinRefCounted() { };
+                int mRefcount_;
+            };
+            class FontFamily : public MinikinRefCounted {
+                uint32_t mLangId;
+                int mVariant;
+                std::vector<Font> mFonts;
+            }; */
+        case __ANDROID_API_N_MR1__: // 7.1
+        case __ANDROID_API_N__: // 7.0
+        case __ANDROID_API_M__: // 6.0
+        case __ANDROID_API_L_MR1__: // 5.1
+        case __ANDROID_API_L__: // 5.0
+        default:
+            offset = 0x10;
+            break;
+    }
+
+    return offset;
+}
+
+// FontFamily::~FontFamily()
+static size_t get_font_vector_step()
+{
+    size_t step = 0;
+
+    switch (sdk_ver_)
+    {
+        /* class FontStyle {
+            enum class Slant : bool {
+                ITALIC = true,
+                UPRIGHT = false,
+            };
+            uint16_t mWeight;
+            Slant mSlant;
+        };
+        using HbFontUniquePtr = std::unique_ptr<hb_font_t, HbFontDeleter>;
+        class Font {
+            std::shared_ptr<MinikinFont> mTypeface;
+            FontStyle mStyle;
+            HbFontUniquePtr mBaseFont;
+        }; */
+        // std::vector<Font> mFonts;
+        case __ANDROID_API_R__: // 11
+        case __ANDROID_API_Q__: // 10
+        case __ANDROID_API_P__: // 9
+
+            /* class FontStyle {
+                uint32_t bits;
+                uint32_t mLanguageListId;
+            };
+            class Font {
+                std::shared_ptr<MinikinFont> typeface;
+                FontStyle style;
+            }; */
+            // std::vector<Font> mFonts;
+        case __ANDROID_API_O_MR1__: // 8.1
+        case __ANDROID_API_O__: // 8.0
+            step = 0x10;
+            break;
+
+            /* class FontStyle {
+                uint32_t bits;
+                uint32_t mLanguageListId;
+            };
+            class Font {
+                MinikinFont* typeface;
+                FontStyle style;
+            }; */
+            // std::vector<Font> mFonts;
+        case __ANDROID_API_N_MR1__: // 7.1
+        case __ANDROID_API_N__: // 7.0
+            step = 0x0c;
+            break;
+
+            /* class FontStyle {
+                uint32_t bits;
+            };
+            class Font {
+                MinikinFont* typeface;
+                FontStyle style;
+            }; */
+            // std::vector<Font> mFonts;
+        case __ANDROID_API_M__: // 6.0
+        case __ANDROID_API_L_MR1__: // 5.1
+        case __ANDROID_API_L__: // 5.0
+        default:
+            step = 0x08;
+            break;
+    }
+
+    return step;
+}
+
+static size_t get_blob_data_offset()
+{
+    size_t offset = 0;
+
+    switch (sdk_ver_)
+    {
+        case __ANDROID_API_R__: // 11
+        case __ANDROID_API_Q__: // 10
+            offset = 0xc;
+            break;
+
+        case __ANDROID_API_P__: // 9
+            offset = 0x24;
+            break;
+
+        case __ANDROID_API_O_MR1__: // 8.1
+        case __ANDROID_API_O__: // 8.0
+        case __ANDROID_API_N_MR1__: // 7.1
+        case __ANDROID_API_N__: // 7.0
+        default:
+            offset = 0x30;
+            break;
+    }
+
+    return offset;
+}

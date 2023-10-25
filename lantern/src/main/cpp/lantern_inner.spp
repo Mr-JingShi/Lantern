@@ -1,0 +1,76 @@
+#pragma once
+
+#include <unistd.h>
+
+#include "xdl.h"
+
+#include <string>
+
+#define ACCESS_XML(xml, prefix, fonts) \
+    if (access(xml, F_OK) == 0) \
+    { \
+        fonts.insert({xml, prefix}); \
+    } \
+
+#define SYSTEM_ETC "/system/etc/"
+#define PRODUCT_ETC "/system/product/etc/"
+#define SYSTEM_FONTS "/system/fonts/"
+#define PRODUCT_FONTS "/system/product/fonts/"
+
+#define DEBUGGABLE 0
+#define SPECIAL_MACHINE_ANDROID 1
+
+#define TEST_EXPRESSION_BEGIN(left, mid, right) \
+    if (left mid right) \
+    {
+
+#define TEST_EXPRESSION_END \
+    }
+
+#define EXPRESSION_RETURN(left, mid, right, ret) ; \
+    TEST_EXPRESSION_BEGIN(left, mid, right) \
+        LOG(#left " " #mid " " #right "."); \
+        return ret; \
+    TEST_EXPRESSION_END
+
+#define TEST_NULLPTR_BEGIN(ptr) \
+    TEST_EXPRESSION_BEGIN(ptr, ==, nullptr)
+
+#define TEST_NULLPTR_END \
+    TEST_EXPRESSION_END
+
+#define NULLPTR_RETURN(ptr, ret) ;\
+    TEST_NULLPTR_BEGIN(ptr) \
+        LOG(#ptr " == nullptr."); \
+        return ret; \
+    TEST_NULLPTR_END
+
+#define GET_HANDLE(libname, flags) \
+    TEST_NULLPTR_BEGIN(libname) \
+        libname = xdl_open("/system/lib/" #libname ".so", flags)NULLPTR_RETURN(libname, false) \
+    TEST_NULLPTR_END
+
+#define CLOSE_HANDLE(libname) \
+    TEST_NULLPTR_BEGIN(libname) \
+        xdl_close(libname); \
+        libname = nullptr; \
+    TEST_NULLPTR_END
+
+#define GET_C_FUN(libname, name) \
+    TEST_NULLPTR_BEGIN(name##_) \
+        name##_ = reinterpret_cast<name##_t>(xdl_sym(libname, #name, nullptr))NULLPTR_RETURN(name##_, false) \
+    TEST_NULLPTR_END
+
+#define TRY_GET_CPLUSPLUS_FUN(libname, func, sig) \
+    TEST_NULLPTR_BEGIN(func) \
+        func = reinterpret_cast<func##_t>(xdl_sym(libname, sig, nullptr)); \
+    TEST_NULLPTR_END
+
+#define GET_CPLUSPLUS_FUN(libname, func, sig) \
+    TEST_NULLPTR_BEGIN(func) \
+        func = reinterpret_cast<func##_t>(xdl_sym(libname, sig, nullptr))NULLPTR_RETURN(func, false) \
+    TEST_NULLPTR_END
+
+static int sdk_ver_ = 0;
+
+static std::string brand_;

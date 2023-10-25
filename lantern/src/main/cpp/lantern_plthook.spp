@@ -1,0 +1,495 @@
+
+#pragma once
+
+#include <stddef.h>
+
+#include "bytehook.h"
+
+#include "lantern_maps.spp"
+#include "lantern_log.spp"
+
+/*
+* ===================================================================================================================================================================
+* API-LEVEL   VERSION   FT_Open_Face   FT_New_Size   hb_blob_create   hb_font_reference   hb_font_get_face   mmap         mmap64
+* ===================================================================================================================================================================
+* 21          5.0       libskia.so     libskia.so                                                            libskia.so
+* 22          5.1       libskia.so     libskia.so                                                            libskia.so
+* 23          6.0       libskia.so     libskia.so                                                            libskia.so
+* -------------------------------------------------------------------------------------------------------------------------------------------------------------------
+* 24          7.0       libskia.so     libskia.so    libminikin.so    libminikin.so                                       libopenjdk.so
+* 25          7.1       libskia.so     libskia.so    libminikin.so    libminikin.so                                       libopenjdk.so
+* 26          8.0       libskia.so     libskia.so    libminikin.so    libminikin.so                                       libopenjdk.so
+* 27          8.1       libskia.so     libskia.so    libminikin.so    libminikin.so                                       libopenjdk.so
+* -------------------------------------------------------------------------------------------------------------------------------------------------------------------
+* 28          9         libhwui.so     libhwui.so    libminikin.so                        libminikin.so                   libopenjdk.so
+* 29          10        libhwui.so     libhwui.so    libminikin.so                        libminikin.so                   libopenjdk.so
+* 30          11        libhwui.so     libhwui.so    libminikin.so                        libminikin.so                   libopenjdk.so
+* ===================================================================================================================================================================
+*/
+
+#define XDL_DEFAULT 0x00
+
+// libtf2.so
+using FT_New_Memory_Face_t = int (*)(void*, const char*, int, int, void**);
+static FT_New_Memory_Face_t FT_New_Memory_Face_ = nullptr;
+
+using FT_Done_Face_t = int (*)(void* face);
+static FT_Done_Face_t FT_Done_Face_ = nullptr;
+
+// libharfbuzz_ng.so
+using hb_destroy_func_t = void (*)(void*);
+
+using hb_blob_destroy_t = void (*)(void*);
+static hb_blob_destroy_t hb_blob_destroy_ = nullptr;
+
+using hb_face_reference_blob_t = void* (*)(void*);
+static hb_face_reference_blob_t hb_face_reference_blob_ = nullptr;
+
+using hb_blob_create_t = void* (*)(const char*, unsigned int, unsigned int, void*, hb_destroy_func_t);
+static hb_blob_create_t hb_blob_create_ = nullptr;
+
+using hb_font_get_face_t = void* (*)(void*);
+static hb_font_get_face_t hb_font_get_face_ = nullptr;
+
+using hb_blob_set_user_data_t = int (*)(void*, void*, void*, hb_destroy_func_t, int);
+static hb_blob_set_user_data_t hb_blob_set_user_data_ = nullptr;
+
+using hb_blob_get_user_data_t = void* (*)(void*, void*);
+static hb_blob_get_user_data_t hb_blob_get_user_data_ = nullptr;
+
+using hb_ot_font_set_funcs_t = void (*)(void*);
+static hb_ot_font_set_funcs_t hb_ot_font_set_funcs_ = nullptr;
+
+using hb_font_set_user_data_t = int (*)(void*, void*, void*, hb_destroy_func_t, int);
+static hb_font_set_user_data_t hb_font_set_user_data_ = nullptr;
+
+using hb_font_get_user_data_t = void* (*)(void*, void*);
+static hb_font_get_user_data_t hb_font_get_user_data_ = nullptr;
+
+using hb_font_get_parent_t = void* (*)(void*);
+static hb_font_get_parent_t hb_font_get_parent_ = nullptr;
+
+using hb_face_create_t = void* (*)(void*, unsigned int);
+static hb_face_create_t hb_face_create_ = nullptr;
+
+using hb_face_get_index_t = unsigned int (*)(const void*);
+static hb_face_get_index_t hb_face_get_index_ = nullptr;
+
+using hb_font_set_face_t = void (*)(void*, void*);
+static hb_font_set_face_t hb_font_set_face_ = nullptr;
+
+using hb_face_destroy_t = void (*)(void*);
+static hb_face_destroy_t hb_face_destroy_ = nullptr;
+
+using hb_face_make_immutable_t = void (*)(void*);
+static hb_face_make_immutable_t hb_face_make_immutable_ = nullptr;
+
+using hb_face_reference_t = void* (*)(void*);
+static hb_face_reference_t hb_face_reference_ = nullptr;
+
+using hb_face_get_upem_t = unsigned int (*)(void*);
+static hb_face_get_upem_t hb_face_get_upem_ = nullptr;
+
+using hb_font_set_scale_t = void (*)(void*, int, int);
+static hb_font_set_scale_t hb_font_set_scale_ = nullptr;
+
+static void hooked_callback(bytehook_stub_t __task_stub, int __status_code, const char* __caller_path_name, const char* __sym_name, void* __new_func, void* __prev_func, void* __arg)
+{
+    LOG("hooked_callback task_stub:%p, status_code:%d, caller_path_name:%s, sym_name:%s, new_func:%p, prev_func:%p, arg:%p", __task_stub, __status_code, __caller_path_name, __sym_name, __new_func, __prev_func, __arg);
+}
+
+#define GET_OFFSET_PTR(data, offset, type) \
+    reinterpret_cast<type>(reinterpret_cast<size_t>(data) + offset)
+#define GET_OFFSET_DATA(data, offset, type) \
+    *(GET_OFFSET_PTR(data, offset, type))
+
+// num_charmaps offset --> struct  FT_FaceRec_
+#define FT_FACE_FACE_FLAGS_OFFSET (0x08)
+// num_charmaps offset --> face->num_charmaps --> FT_Set_Charmap
+#define FT_FACE_NUM_CHARMAPS_OFFSET (0x24)
+// num_charmaps offset --> face->charmaps --> FT_Set_Charmap
+#define FT_FACE_CHARMAPS_OFFSET (0x28)
+// num_charmaps offset --> face->charmap --> FT_Set_Charmap
+#define FT_FACE_CHARMAP_OFFSET (0x5c)
+// driver offset --> face->driver --> FT_New_Size
+#define FT_FACE_DRIVER_OFFSET (0x60)
+// stream offset --> face->driver + 8
+#define FT_FACE_STREAM_OFFSET (FT_FACE_DRIVER_OFFSET + 8)
+// extensions offset --> face->internal --> FT_Reference_Face
+#define FT_FACE_INTERNAL_OFFSET (0x80)
+// extensions offset --> face->internal - 4
+#define FT_FACE_EXTERNSIONS_OFFSET (FT_FACE_INTERNAL_OFFSET - 4)
+// ttface offset --> face->internal + 4
+#define FT_FACE_TTFACE_OFFSET (FT_FACE_INTERNAL_OFFSET + 4)
+
+#define SAFE_SWAP(left, right, type) \
+    if (left != right) \
+    { \
+        type tmp = left; \
+        left = right; \
+        right = tmp; \
+    }
+
+#define OFFSET_PTR_SAFE_SWAP(left, right, offset, type, name) \
+    type* left_##name##_ptr = GET_OFFSET_PTR(left, offset, type*); \
+    type* right_##name##_ptr = GET_OFFSET_PTR(right, offset, type*); \
+    LOG("FT_New_Size_proxy left_%s:%p right_%s:%p", #name, *left_##name##_ptr, #name, *right_##name##_ptr); \
+    SAFE_SWAP(*left_##name##_ptr, *right_##name##_ptr, type);
+
+#define FT_FACE_SET_EXTENSIONS(face) \
+    void** extensions_ptr = GET_OFFSET_PTR(face, FT_FACE_EXTERNSIONS_OFFSET, void**); \
+    *extensions_ptr = reinterpret_cast<void*>(find_self_maps);
+
+static int FT_New_Size_proxy(void* __oldface, void** __asize)
+{
+    void** extensions_ptr = GET_OFFSET_PTR(__oldface, FT_FACE_EXTERNSIONS_OFFSET, void**);
+
+    if (*extensions_ptr == nullptr)
+    {
+        void* stream = GET_OFFSET_DATA(__oldface, FT_FACE_STREAM_OFFSET, void**);
+        // face->stream->base
+        const char* stream_base = GET_OFFSET_DATA(stream, 0x00, const char**);
+        LOG("FT_New_Size_proxy face:%p stream_base:%p", __oldface, stream_base);
+        // face->stream->size
+        unsigned int stream_size = GET_OFFSET_DATA(stream, 0x04, unsigned int*);
+        const char* new_start = find_self_maps(stream_base, stream_size);
+
+        if (new_start != nullptr)
+        {
+            // face->face_index
+            signed int face_index = GET_OFFSET_DATA(__oldface, 0x04, signed int*);
+            LOG("FT_New_Size_proxy face_index:%d", face_index);
+            // face->driver
+            void* driver = GET_OFFSET_DATA(__oldface, FT_FACE_DRIVER_OFFSET, void**);
+
+            // face->driver->root->library offset
+            void* library = GET_OFFSET_DATA(driver, 0x04, void**);
+            // face->driver->clazz offset --> open_face
+            void* driver_clazz = GET_OFFSET_DATA(driver, 0x0c, void**);
+
+            // face->driver->clazz->face_object_size offset --> open_face
+            unsigned int face_size = GET_OFFSET_DATA(driver_clazz, 0x24, unsigned int*);
+            LOG("FT_New_Size_proxy face_size:%d", face_size);
+
+            void* newface = nullptr;
+            int error = FT_New_Memory_Face_(library, new_start, stream_size, face_index, &newface);
+            LOG("FT_New_Size_proxy newface:%p error:%d", newface, error);
+
+            // swap face->face_flags
+            OFFSET_PTR_SAFE_SWAP(__oldface, newface, FT_FACE_FACE_FLAGS_OFFSET, signed int*, face_flags);
+            // get face->num_charmaps
+            signed int num_charmaps = GET_OFFSET_DATA(__oldface, FT_FACE_NUM_CHARMAPS_OFFSET, signed int*);
+            LOG("FT_New_Size_proxy num_charmaps:%d", num_charmaps);
+            // swap face->charmaps
+            OFFSET_PTR_SAFE_SWAP(__oldface, newface, FT_FACE_CHARMAPS_OFFSET, void**, charmaps);
+
+            for (int i = 0; i < num_charmaps; ++i)
+            {
+                OFFSET_PTR_SAFE_SWAP((*left_charmaps_ptr)[i], (*right_charmaps_ptr)[i], 0x00, void*, charmaps_face);
+            }
+
+            // swap face->charmap
+            OFFSET_PTR_SAFE_SWAP(__oldface, newface, FT_FACE_CHARMAP_OFFSET, void*, charmap);
+            // swap face->stream
+            OFFSET_PTR_SAFE_SWAP(__oldface, newface, FT_FACE_STREAM_OFFSET, void*, stream);
+
+            // swap ttface
+            size_t ttface_offset = face_size - FT_FACE_TTFACE_OFFSET;
+            assert(ttface_offset > 0);
+            void* ttface = malloc(ttface_offset);
+            memcpy(ttface, GET_OFFSET_PTR(__oldface, FT_FACE_TTFACE_OFFSET, void*), ttface_offset);
+            memcpy(GET_OFFSET_PTR(__oldface, FT_FACE_TTFACE_OFFSET, void*), GET_OFFSET_PTR(newface, FT_FACE_TTFACE_OFFSET, void*), ttface_offset);
+            memcpy(GET_OFFSET_PTR(newface, FT_FACE_TTFACE_OFFSET, void*), ttface, ttface_offset);
+            free(ttface);
+
+            FT_Done_Face_(newface);
+        }
+
+        // modify face->extensions
+        FT_FACE_SET_EXTENSIONS(__oldface);
+    }
+
+    BYTEHOOK_STACK_SCOPE();
+    return BYTEHOOK_CALL_PREV(FT_New_Size_proxy, __oldface, __asize);
+}
+
+#define FT_OPEN_MEMORY    0x1
+
+static int FT_Open_Face_proxy(void* __library, const void* __args, int __face_index, void** __aface)
+{
+    unsigned int flags = GET_OFFSET_DATA(__args, 0, unsigned int*);
+
+    if (flags & FT_OPEN_MEMORY) // (flags == FT_OPEN_MEMORY)
+    {
+        const char** memory_base_ptr = GET_OFFSET_PTR(__args, 0x04, const char**);
+        signed int memory_size = GET_OFFSET_DATA(__args, 0x08, signed int*);
+
+        const char* new_base = find_self_maps(*memory_base_ptr, memory_size);
+
+        if (new_base != nullptr)
+        {
+            *memory_base_ptr = new_base;
+        }
+    }
+
+    BYTEHOOK_STACK_SCOPE();
+    int ret = BYTEHOOK_CALL_PREV(FT_Open_Face_proxy, __library, __args, __face_index, __aface);
+
+    if (ret == 0)
+    {
+        // modify face->extensions
+        FT_FACE_SET_EXTENSIONS(*__aface);
+    }
+
+    return ret;
+}
+
+#define HB_BLOB_SET_USER_DATA(blob) \
+    hb_blob_set_user_data_(blob,    \
+        reinterpret_cast<void*>(find_self_maps), \
+        reinterpret_cast<void*>(find_self_maps), \
+        nullptr,                    \
+        1);
+
+#define HB_BLOB_GET_USER_DATA(blob) \
+    hb_blob_get_user_data_(blob, reinterpret_cast<void*>(find_self_maps));
+
+#define HB_FONT_SET_USER_DATA(font) \
+    hb_font_set_user_data_(font, \
+        reinterpret_cast<void*>(find_self_maps), \
+        reinterpret_cast<void*>(find_self_maps), \
+        nullptr, \
+        1);
+
+#define HB_FONT_GET_USER_DATA(font) \
+    hb_font_get_user_data_(font, reinterpret_cast<void*>(find_self_maps));
+
+// face offset --> font->driver --> hb_font_get_face
+#define HB_FONT_T_FACE_OFFSET 0x34 // 7.0 7.1 8.0 8.1
+
+static void hb_font_set_face_self(void* __font, void* __face)
+{
+    void** old_face_ptr = GET_OFFSET_PTR(__font, HB_FONT_T_FACE_OFFSET, void**);
+    void* old_face = *old_face_ptr;
+
+    hb_face_make_immutable_(__face);
+    *old_face_ptr = hb_face_reference_(__face);
+
+    hb_face_destroy_(old_face);
+}
+
+static void hb_font_relpace_face(void* __blob, void* __face, void* __font, void* __parent_font)
+{
+    void* new_face = hb_face_create_(__blob, hb_face_get_index_(__face));
+
+    hb_font_set_face_(__parent_font, new_face);
+    hb_ot_font_set_funcs_(__parent_font);
+
+    unsigned int upem = hb_face_get_upem_(new_face);
+    hb_font_set_scale_(__parent_font, upem, upem);
+
+    hb_font_set_face_(__font, new_face);
+
+    hb_face_destroy_(new_face);
+}
+
+static void hb_font_relpace_face(void* __font)
+{
+    void* parent_font = hb_font_get_parent_(__font);
+
+    void* parent_font_user_data = HB_FONT_GET_USER_DATA(parent_font);
+
+    if (parent_font_user_data == nullptr)
+    {
+        void* face = hb_font_get_face_(__font);
+
+        void* blob = hb_face_reference_blob_(face);
+
+        void* blob_user_data = HB_BLOB_GET_USER_DATA(blob);
+
+        if (blob_user_data != nullptr)
+        {
+            hb_font_relpace_face(blob, face, __font, parent_font);
+        }
+        else
+        {
+            const char** blob_data_ptr = GET_OFFSET_PTR(blob, get_blob_data_offset(), const char**);
+            unsigned int blob_data_size = GET_OFFSET_DATA(blob, get_blob_data_offset() + 4, unsigned int*);
+
+            const char* new_base = find_self_maps(*blob_data_ptr, blob_data_size);
+
+            if (new_base != nullptr)
+            {
+                *blob_data_ptr = new_base;
+
+                hb_font_relpace_face(blob, face, __font, parent_font);
+            }
+
+            HB_BLOB_SET_USER_DATA(blob);
+        }
+
+        hb_blob_destroy_(blob);
+
+        HB_FONT_SET_USER_DATA(parent_font);
+    }
+}
+
+static void* hb_blob_create_proxy(const char* __data, unsigned int __length, int __mode, void* __user_data, hb_destroy_func_t __destroy)
+{
+    const char* new_base = find_self_maps(__data, __length);
+
+    if (new_base != nullptr)
+    {
+        __data = new_base;
+    }
+
+    BYTEHOOK_STACK_SCOPE();
+    void* ret = BYTEHOOK_CALL_PREV(hb_blob_create_proxy, __data, __length, __mode, __user_data, __destroy);
+
+    if (ret != nullptr)
+    {
+        HB_BLOB_SET_USER_DATA(ret);
+    }
+
+    return ret;
+}
+
+static void* hb_font_reference_proxy(void* __font)
+{
+    hb_font_relpace_face(__font);
+
+    BYTEHOOK_STACK_SCOPE();
+    return BYTEHOOK_CALL_PREV(hb_font_reference_proxy, __font);
+}
+
+static void* hb_font_get_face_proxy(void* __parent)
+{
+    hb_font_relpace_face(__parent);
+
+    BYTEHOOK_STACK_SCOPE();
+    return BYTEHOOK_CALL_PREV(hb_font_get_face_proxy, __parent);
+}
+
+static bool check_blob_data_offset()
+{
+    bool ret = false;
+
+    const char* ptr = nullptr;
+    void* blob = hb_blob_create_(ptr, sizeof(ptr), 1, nullptr, nullptr);
+    const char** blob_data_ptr = GET_OFFSET_PTR(blob, get_blob_data_offset(), const char**);
+
+    if (ptr == *blob_data_ptr)
+    {
+        LOG("get_blob_data_offset good");
+        ret = true;
+    }
+
+    hb_blob_destroy_(blob);
+
+    return ret;
+}
+
+#define MMAP(proxy, ret, __addr, __size, __prot, __flags, __fd, __offset) \
+    std::set<void*> addrs; \
+    BYTEHOOK_STACK_SCOPE(); \
+    while (1) \
+    { \
+        ret = BYTEHOOK_CALL_PREV(proxy, __addr, __size, __prot, __flags, __fd, __offset); \
+        LOG(#proxy " ret:%p fd:%d", ret, __fd); \
+        if (ret == nullptr || __fd == -1) \
+        { \
+            break; \
+        } \
+        char fd[PATH_MAX + 1] = {0}; \
+        char file[PATH_MAX + 1] = {0}; \
+        snprintf(fd, sizeof(fd), "/proc/self/fd/%d", __fd); \
+        LOG(#proxy " readlink fd:%s", fd); \
+        if (readlink(fd, file, sizeof(file) - 1) == -1) \
+        { \
+            break; \
+        } \
+        LOG(#proxy " readlink file:%s", file); \
+        if (::strstr(file, ".ttf") == nullptr \
+            || ::strstr(file, ".otf") == nullptr \
+            || ::strstr(file, ".ttc") == nullptr) \
+        { \
+            break; \
+        } \
+        auto&& mapIt = fontsMaps_.find(reinterpret_cast<uintptr_t>(ret)); \
+        if (mapIt == fontsMaps_.end()) \
+        { \
+            break; \
+        } \
+        if (mapIt->second.file_size != __size) \
+        { \
+            break; \
+        } \
+        if (mapIt->second.pathname == file) \
+        { \
+            break; \
+        } \
+        LOG(#proxy " hit addr:%p", ret); \
+        addrs.emplace(ret); \
+    } \
+    for (auto&& addr : addrs) \
+    { \
+        ::munmap(addr, __size); \
+    }
+
+static void* mmap_proxy(void* __addr, size_t __size, int __prot, int __flags, int __fd, off_t __offset)
+{
+    void* ret = nullptr;
+    MMAP(mmap_proxy, ret, __addr, __size, __prot, __flags, __fd, __offset);
+
+    return ret;
+}
+
+static void* mmap64_proxy(void* __addr, size_t __size, int __prot, int __flags, int __fd, off64_t __offset)
+{
+    void* ret = nullptr;
+    MMAP(mmap64_proxy, ret, __addr, __size, __prot, __flags, __fd, __offset);
+
+    return ret;
+}
+
+#if DEBUGGABLE
+int munmap_proxy(void* __addr, size_t __len)
+{
+    LOG("munmap_proxy addr:%p size:%zu", __addr, __len);
+
+    BYTEHOOK_STACK_SCOPE();
+    return BYTEHOOK_CALL_PREV(munmap_proxy, __addr, __len);
+}
+#endif
+
+#define CHECK_BLOB_DATA_OFFSET() \
+    if (!check_blob_data_offset()) \
+    { \
+        LOG("check blob data offset fail"); \
+        return false; \
+    }
+
+static bool libskia_filter(const char* __caller_name, void* __arg)
+{
+    if (::strstr(__caller_name, "libskia.so") != nullptr
+        || ::strstr(__caller_name, "libskia_mtk.so") != nullptr)
+    {
+        return true;
+    }
+
+    return false;
+}
+
+#define HOOK_SINGLE(libname, symbol) \
+    if (nullptr == bytehook_hook_single(libname, nullptr, #symbol, reinterpret_cast<void*>(symbol##_proxy), hooked_callback, nullptr)) \
+    { \
+        LOG("hook failed, libname:" #libname " symbol" #symbol); \
+        return false; \
+    }
+
+#define HOOK_PARTIAL(filter, symbol) \
+    if (nullptr == bytehook_hook_partial(filter, nullptr, nullptr, #symbol, reinterpret_cast<void*>(symbol##_proxy), hooked_callback, nullptr)) \
+    { \
+        LOG("hook failed, filter:" #filter " symbol:" #symbol); \
+        return false; \
+    }

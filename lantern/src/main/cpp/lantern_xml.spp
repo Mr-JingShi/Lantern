@@ -1,0 +1,262 @@
+#pragma once
+
+#include <sys/stat.h>
+
+#include <string>
+#include <fstream>
+
+#define CHAR_EQUAL(t, f, c, o) \
+    (fontsxml[pos + 2] == t \
+        && ( \
+            (fontsxml[pos + 1] == t && (fontsxml[pos + 3] == f || fontsxml[pos + 3] == c)) \
+            || (fontsxml[pos + 1] == o && fontsxml[pos + 3] == f) \
+           ) \
+    )
+
+static void check_symbolic(std::string& __name)
+{
+    struct stat fileStat = {};
+
+    if (lstat(__name.c_str(), &fileStat) == 0)
+    {
+        if ((fileStat.st_mode & S_IFMT) == S_IFLNK)
+        {
+            char linkname[PATH_MAX + 1] = {0};
+
+            if (readlink(__name.c_str(), linkname, sizeof(linkname) - 1) != -1)
+            {
+                LOG("This is a symbolic link %s--%s.", __name.c_str(), linkname);
+
+                if (strlen(linkname) > 0)
+                {
+                    if (linkname[0] ==  '/')
+                    {
+                        __name = linkname;
+                    }
+                    else
+                    {
+                        auto pos = __name.rfind("/");
+                        __name =  __name.substr(0, pos + 1) + linkname;
+                    }
+                }
+            }
+        }
+    }
+}
+
+static void get_fontnames_from_xml(JNIEnv* __env, std::set<std::string>& __names)
+{
+    std::unordered_map<std::string, std::string> fonts;
+
+#if SPECIAL_MACHINE_ANDROID
+
+    if (::strcasestr(brand_.c_str(), "Meizu"))
+    {
+        get_fontxml_for_meizu_from_java(__env, fonts);
+    }
+    else if (::strcasestr(brand_.c_str(), "OnePlus"))
+    {
+        /*
+         Android 7.1
+         private static void init() {
+            init(2);
+            init(1);
+        }
+
+        private static void init(int fontId) {
+            File configFilename;
+            Typeface typeface;
+            File systemFontConfigLocation = getSystemFontConfigLocation();
+            if (fontId == 1) {
+                configFilename = new File(systemFontConfigLocation, FONTS_ORIGIN_CONFIG);
+            } else if (fontId == 2) {
+                configFilename = new File(systemFontConfigLocation, FONTS_SLATE_CONFIG);
+            } else {
+                configFilename = new File(systemFontConfigLocation, FONTS_ORIGIN_CONFIG);
+            }
+            try {
+                try {
+                    try {
+                        try {
+                            FileInputStream fontsIn = new FileInputStream(configFilename);
+                            FontListParser.Config fontConfig = FontListParser.parse(fontsIn);
+                            Map<String, ByteBuffer> bufferForPath = new HashMap<>();
+                            List<FontFamily> familyList = new ArrayList<>();
+                            for (int i = 0; i < fontConfig.families.size(); i++) {
+                                FontListParser.Family f = fontConfig.families.get(i);
+                                if (i == 0 || f.name == null) {
+                                    familyList.add(makeFamilyFromParsed(f, bufferForPath));
+                                }
+                            }
+                            sFallbackFonts = (FontFamily[]) familyList.toArray(new FontFamily[familyList.size()]);
+                            if (fontId == 1) {
+                                sOriginFallbackFonts = (FontFamily[]) sFallbackFonts.clone();
+                            } else if (fontId == 2) {
+                                sSlateFallbackFonts = (FontFamily[]) sFallbackFonts.clone();
+                            }
+                            setDefault(createFromFamilies(sFallbackFonts));
+                            Map<String, Typeface> systemFonts = new HashMap<>();
+                            for (int i2 = 0; i2 < fontConfig.families.size(); i2++) {
+                                FontListParser.Family f2 = fontConfig.families.get(i2);
+                                if (f2.name != null) {
+                                    if (i2 == 0) {
+                                        typeface = sDefaultTypeface;
+                                    } else {
+                                        FontFamily fontFamily = makeFamilyFromParsed(f2, bufferForPath);
+                                        FontFamily[] families = {fontFamily};
+                                        typeface = createFromFamiliesWithDefault(families);
+                                    }
+                                    systemFonts.put(f2.name, typeface);
+                                }
+                            }
+                            for (FontListParser.Alias alias : fontConfig.aliases) {
+                                Typeface base = systemFonts.get(alias.toName);
+                                Typeface newFace = base;
+                                int weight = alias.weight;
+                                if (weight != 400) {
+                                    newFace = new Typeface(nativeCreateWeightAlias(base.native_instance, weight));
+                                }
+                                systemFonts.put(alias.name, newFace);
+                            }
+                            sSystemFontMap = systemFonts;
+                            if (fontId == 1) {
+                                sOriginSystemFontMap = new HashMap(systemFonts);
+                            } else if (fontId == 2) {
+                                sSlateSystemFontMap = new HashMap(systemFonts);
+                            }
+                        } catch (FileNotFoundException e) {
+                            Log.e(TAG, "Error opening " + configFilename, e);
+                        } catch (RuntimeException e2) {
+                            Log.w(TAG, "Didn't create default family (most likely, non-Minikin build)", e2);
+                        }
+                    } catch (XmlPullParserException e3) {
+                        Log.e(TAG, "XML parse exception for " + configFilename, e3);
+                    }
+                } catch (IOException e4) {
+                    Log.e(TAG, "Error reading " + configFilename, e4);
+                }
+            } finally {
+                is_initialized = true;
+            }
+        }
+        */
+        if (sdk_ver_ == __ANDROID_API_N_MR1__)
+        {
+            ACCESS_XML(SYSTEM_ETC "fonts.xml", SYSTEM_FONTS, fonts);
+            ACCESS_XML(SYSTEM_ETC "fonts_slate.xml", SYSTEM_FONTS, fonts);
+        }
+    }
+    else if (::strcasestr(brand_.c_str(), "motorola"))
+    {
+        get_fontxml_for_motorola_from_java(__env, fonts);
+    }
+    else if (::strcasestr(brand_.c_str(), "OPPO"))
+    {
+        if (sdk_ver_ == __ANDROID_API_R__)
+        {
+            ACCESS_XML("/system_ext/etc/fonts_base.xml", SYSTEM_FONTS, fonts);
+        }
+    }
+    else if (::strcasestr(brand_.c_str(), "lge") || ::strcasestr(brand_.c_str(), "MetroPCS"))
+    {
+        get_fontxml_for_lge_from_java(__env, fonts);
+    }
+
+    if (fonts.empty() && sdk_ver_ <= __ANDROID_API_O_MR1__)
+#else
+    if (sdk_ver_ <= __ANDROID_API_O_MR1__)
+#endif
+    {
+        std::unordered_map<std::string, std::string> fontsconfigFields;
+        fontsconfigFields.emplace("FONTS_CONFIG", "Ljava/lang/String;");
+
+#if DEBUGGABLE
+        get_fontnames_from_java(__env, fontsconfigFields, __names, check_symbolic);
+#else
+        get_xmlnames_from_java(__env, fontsconfigFields, fonts);
+#endif
+    }
+
+#if DEBUGGABLE
+
+    if (fonts.empty() && __names.empty())
+#else
+    if (fonts.empty())
+#endif
+    {
+        ACCESS_XML(SYSTEM_ETC "fonts.xml", SYSTEM_FONTS, fonts);
+    }
+
+    // product
+    if (sdk_ver_ == __ANDROID_API_Q__ || sdk_ver_ == __ANDROID_API_R__)
+    {
+        ACCESS_XML(PRODUCT_ETC "fonts_customization.xml", PRODUCT_FONTS, fonts);
+    }
+
+    for (auto&& iter : fonts)
+    {
+        std::ifstream ifs(iter.first);
+        std::string fontsxml((std::istreambuf_iterator<char>(ifs)),
+                             std::istreambuf_iterator<char>());
+        ifs.close();
+
+        if (fontsxml.empty())
+        {
+            continue;
+        }
+
+        std::string::size_type pos = 0;
+
+        while (1)
+        {
+            auto&& font_begin_pos = fontsxml.find("<font ", pos);
+
+            if (font_begin_pos == std::string::npos)
+            {
+                break;
+            }
+
+            font_begin_pos = fontsxml.find(">", font_begin_pos + 6);
+
+            if (font_begin_pos == std::string::npos)
+            {
+                break;
+            }
+
+            font_begin_pos += 1;
+
+            auto&& font_end_pos = fontsxml.find("</font>", font_begin_pos);
+
+            if (font_end_pos == std::string::npos)
+            {
+                break;
+            }
+
+            bool found = false;
+
+            for (pos = font_end_pos - 4; pos >= font_begin_pos; --pos)
+            {
+                // .ttf .otf .ttc .TTF .OTF .TTC
+                if (fontsxml[pos] == '.' && (CHAR_EQUAL('t', 'f', 'c', 'o') || CHAR_EQUAL('T', 'F', 'C', 'O')))
+                {
+                    std::string fontname = iter.second + fontsxml.substr(font_begin_pos, pos + 4 - font_begin_pos);
+
+                    check_symbolic(fontname);
+
+                    __names.emplace(fontname);
+
+                    pos = font_end_pos + 7;
+
+                    found = true;
+
+                    break;
+                }
+            }
+
+            if (!found)
+            {
+                break;
+            }
+        }
+    }
+}

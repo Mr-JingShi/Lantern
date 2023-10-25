@@ -1,0 +1,78 @@
+#pragma once
+
+#include <signal.h>
+#include <setjmp.h>
+
+#include "lantern_log.spp"
+
+static struct sigaction act_old_ = {0};
+static volatile int signal_flag_ = 0;
+static sigjmp_buf time_machine_;
+
+static void signal_handler(int signum, siginfo_t* siginfo, void* context)
+{
+    if (signal_flag_)
+    {
+        LOG("found exception signal %d", signum);
+
+        siglongjmp(time_machine_, 1);
+    }
+    else
+    {
+        // use raw log method, LOGE not thread safe.
+        LOG("found exception signal %d, but not my business.", signum);
+
+        // sigaction(sig, &sig_act_old, NULL);
+        if (act_old_.sa_flags & SA_SIGINFO)
+        {
+            act_old_.sa_sigaction(signum, siginfo, context);
+        }
+        else
+        {
+            if (SIG_DFL == act_old_.sa_handler)
+            {
+                // If the previous handler was the default handler, cause a core dump.
+                signal(signum, SIG_DFL);
+                raise(signum);
+            }
+            else if (SIG_IGN == act_old_.sa_handler)
+            {
+                return;
+            }
+            else
+            {
+                act_old_.sa_handler(signum);
+            }
+        }
+    }
+}
+
+static bool signal_register(int sig)
+{
+    struct sigaction act = {0};
+
+    if (0 != sigemptyset(&act.sa_mask))
+    {
+        return false;
+    }
+
+    act.sa_flags = SA_SIGINFO | SA_ONSTACK | SA_RESTART;
+    act.sa_sigaction = signal_handler;
+
+    if (0 != sigaction(sig, &act, &act_old_))
+    {
+        return false;
+    }
+
+    return true;
+}
+
+static bool signal_unregister(int sig)
+{
+    if (0 != sigaction(sig, &act_old_, nullptr))
+    {
+        return false;
+    }
+
+    return true;
+}

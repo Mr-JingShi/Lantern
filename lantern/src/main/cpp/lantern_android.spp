@@ -1,0 +1,29 @@
+#pragma once
+
+// libandroid_runtime.so
+using android_MinikinFontSkia_GetSkTypeface_t = void* (*)(const void*);
+using GetSkTypeface_t = android_MinikinFontSkia_GetSkTypeface_t;
+
+// libskia.so
+using SkTypeface_openStream_t = void* (*)(const void*, int*);
+using openStream_t = SkTypeface_openStream_t;
+
+using SkMemoryStream_getMemoryBase_t = const void* (*)(const void*);
+using getMemoryBase_t = SkMemoryStream_getMemoryBase_t;
+
+using SkMemoryStream_getLength_t = size_t (*)(const void*);
+using getLength_t = SkMemoryStream_getLength_t;
+
+// libminikin.so
+using android_FontFamily_getNumFonts_t = size_t (*)(const void*);
+using getNumFonts_t = android_FontFamily_getNumFonts_t;
+
+using android_FontFamily_getFont_t = void* (*)(const void*, size_t);
+using getFont_t = android_FontFamily_getFont_t;
+
+// libhwui.so
+using android_MinikinFontSkia_GetFontData_t = const void* (*)(const void*);
+using GetFontData_t = android_MinikinFontSkia_GetFontData_t;
+
+using android_MinikinFontSkia_GetFontSize_t = size_t (*)(const void*);
+using GetFontSize_t = android_MinikinFontSkia_GetFontSize_t;

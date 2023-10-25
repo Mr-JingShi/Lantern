@@ -21,9 +21,14 @@
                 android:text="welcome to AndroidFontExt Sample"/>
 
             <Button style="@style/Theme.Button"
+                android:id="@+id/test_gc"
+                android:onClick="on_test_gc_clicked"
+                android:text="触发GC" />
+
+            <Button style="@style/Theme.Button"
                 android:id="@+id/test_ja"
                 android:onClick="on_test_ja_clicked"
-                android:text="日语--高德地图" />
+                android:text="外语--高德地图" />
             <Button style="@style/Theme.Button"
                 android:id="@+id/test_style"
                 android:onClick="on_test_style_clicked"
@@ -41,9 +46,13 @@
                 android:onClick="on_test_unknow_clicked"
                 android:text="生僻字" />
             <Button style="@style/Theme.Button"
-                android:id="@+id/test_font"
-                android:onClick="on_test_font_clicked"
-                android:text="私有字体库" />
+                android:id="@+id/test_asset_font"
+                android:onClick="on_test_asset_font_clicked"
+                android:text="asset私有字体库(malloc)" />
+            <Button style="@style/Theme.Button"
+                android:id="@+id/test_path_font"
+                android:onClick="on_test_path_font_clicked"
+                android:text="path私有字体库(mmap)" />
             <Button style="@style/Theme.Button"
                 android:id="@+id/test_next"
                 android:text="请继续下一个测试：【设置/个性化】中自定义字体"/>

@@ -1,741 +1,597 @@
 ﻿#include "lantern.h"
-#include <unistd.h>
-#include <sys/mman.h>
-#include <sys/stat.h>
-#include <fcntl.h>
-#include <inttypes.h>
+
+
 #include <string>
+#include <set>
+#include <unordered_set>
 #include <unordered_map>
-#include <android/log.h>
 
-#include "bytehook.h"
-#include "xdl.h"
+#include "lantern_inner.spp"
+#include "lantern_java.spp"
+#include "lantern_offset.spp"
+#include "lantern_sig.spp"
+#include "lantern_plthook.spp"
+#include "lantern_maps.spp"
+#include "lantern_android.spp"
+#include "lantern_xml.spp"
+#include "lantern_log.spp"
 
-#define XDL_DEFAULT           0x00
-
-#define LOG_TAG "lantern"
-
-#define LOG(fmt, ...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, fmt, ##__VA_ARGS__)
-
-/*
-* ===================================================================================================================================================================
-* API-LEVEL   VERSION   FT_Open_Face   FT_New_Size   hb_blob_create   hb_font_reference   hb_font_get_face   remark
-* ===================================================================================================================================================================
-* 21          5.0       libskia.so     libskia.so
-* 22          5.1       libskia.so     libskia.so
-* 23          6.0       libskia.so     libskia.so
-* -------------------------------------------------------------------------------------------------------------------------------------------------------------------
-* 24          7.0       libskia.so     libskia.so    libminikin.so    libminikin.so
-* 25          7.1       libskia.so     libskia.so    libminikin.so    libminikin.so
-* 26          8.0       libskia.so     libskia.so    libminikin.so    libminikin.so
-* 27          8.1       libskia.so     libskia.so    libminikin.so    libminikin.so
-* -------------------------------------------------------------------------------------------------------------------------------------------------------------------
-* 28          9         libhwui.so     libskia.so    libminikin.so                        libminikin.so
-* 29          10        libhwui.so     libskia.so    libminikin.so                        libminikin.so
-* 30          11        libhwui.so     libskia.so    libminikin.so                        libminikin.so
-* ===================================================================================================================================================================
-*/
-
-// libtf2.so
-using FT_New_Memory_Face_t = int (*)(void* library, const char* file_base, int file_size, int face_index, void** aface);
-static FT_New_Memory_Face_t FT_New_Memory_Face_ = nullptr;
-
-using FT_Done_Face_t = int (*)(void* face);
-static FT_Done_Face_t FT_Done_Face_ = nullptr;
-
-// libharfbuzz_ng.so
-using hb_destroy_func_t = void (*)(void*);
-
-using hb_blob_destroy_t = void (*)(void*);
-static hb_blob_destroy_t hb_blob_destroy_ = nullptr;
-
-using hb_face_reference_blob_t = void* (*)(void*);
-static hb_face_reference_blob_t hb_face_reference_blob_ = nullptr;
-
-using hb_blob_create_t = void* (*)(const char*, unsigned int, unsigned int, void*, hb_destroy_func_t);
-static hb_blob_create_t hb_blob_create_ = nullptr;
-
-using hb_font_get_face_t = void* (*)(void*);
-static hb_font_get_face_t hb_font_get_face_ = nullptr;
-
-using hb_blob_set_user_data_t = int (*)(void*, void*, void*, hb_destroy_func_t, int);
-static hb_blob_set_user_data_t hb_blob_set_user_data_ = nullptr;
-
-using hb_blob_get_user_data_t = void* (*)(void*, void*);
-static hb_blob_get_user_data_t hb_blob_get_user_data_ = nullptr;
-
-using hb_ot_font_set_funcs_t = void (*)(void*);
-static hb_ot_font_set_funcs_t hb_ot_font_set_funcs_ = nullptr;
-
-using hb_font_set_user_data_t = int (*)(void*, void*, void*, hb_destroy_func_t, int);
-static hb_font_set_user_data_t hb_font_set_user_data_ = nullptr;
-
-using hb_font_get_user_data_t = void* (*)(void*, void*);
-static hb_font_get_user_data_t hb_font_get_user_data_ = nullptr;
-
-using hb_font_get_parent_t = void* (*)(void*);
-static hb_font_get_parent_t hb_font_get_parent_ = nullptr;
-
-using hb_face_create_t = void* (*)(void*, unsigned int);
-static hb_face_create_t hb_face_create_ = nullptr;
-
-using hb_face_get_index_t = unsigned int (*)(const void*);
-static hb_face_get_index_t hb_face_get_index_ = nullptr;
-
-using hb_font_set_face_t = void (*)(void*, void*);
-static hb_font_set_face_t hb_font_set_face_ = nullptr;
-
-using hb_face_destroy_t = void (*)(void*);
-static hb_face_destroy_t hb_face_destroy_ = nullptr;
-
-using hb_face_make_immutable_t = void (*)(void* face);
-static hb_face_make_immutable_t hb_face_make_immutable_ = nullptr;
-
-using hb_face_reference_t = void* (*)(void* face);
-static hb_face_reference_t hb_face_reference_ = nullptr;
-
-using hb_face_get_upem_t = unsigned int (*)(void* face);
-static hb_face_get_upem_t hb_face_get_upem_ = nullptr;
-
-using hb_font_set_scale_t = void (*)(void* font, int x_scale, int y_scale);
-static hb_font_set_scale_t hb_font_set_scale_ = nullptr;
-
-static int sdk_ver_ = 0;
-
-static std::unordered_map<uintptr_t, std::pair<uintptr_t, std::string>> fontsMaps_;
-
-static int get_blob_data_offset()
+static void munmap_fonts_maps(JNIEnv* __env, const std::unordered_map<void*, size_t>& __fontData, const std::unordered_set<size_t>& __black_lists)
 {
-    int offset = 0;
+#if 0
 
-    switch (sdk_ver_)
+    if (0)
+#else
+    if (!__fontData.empty())
+#endif
     {
-        case __ANDROID_API_R__: // 11
-        case __ANDROID_API_Q__: // 10
-            offset = 0xc;
-            break;
-
-        case __ANDROID_API_P__: // 9
-            offset = 0x24;
-            break;
-
-        case __ANDROID_API_O_MR1__: // 8.1
-        case __ANDROID_API_O__: // 8.0
-        case __ANDROID_API_N_MR1__: // 7.1
-        case __ANDROID_API_N__: // 7.0
-        default:
-            offset = 0x30;
-            break;
-    }
-
-    return offset;
-}
-
-using MapsEntryCallback = std::function<bool(uintptr_t, uintptr_t, char[4], const char*, void*)>;
-
-static bool IterateMaps(const MapsEntryCallback& cb, void* args = nullptr)
-{
-    FILE* fp = nullptr;
-    char line[PATH_MAX] = {};
-
-    if ((fp = ::fopen("/proc/self/maps", "r")) == nullptr)
-    {
-        return false;
-    }
-
-    while (::fgets(line, sizeof(line), fp) != nullptr)
-    {
-        uintptr_t start = 0;
-        uintptr_t end = 0;
-        char perm[4] = {};
-        int pathnamePos = 0;
-
-        if (::sscanf(line, "%" PRIxPTR "-%" PRIxPTR " %4c %*x %*x:%*x %*d%n",
-                     &start, &end, perm, &pathnamePos) != 3)
+        for (auto&& iter = fontsMaps_.begin(); iter != fontsMaps_.end(); /* ++iter */)
         {
-            continue;
-        }
-
-        if (pathnamePos <= 0)
-        {
-            continue;
-        }
-
-        while (::isspace(line[pathnamePos]) && pathnamePos <= static_cast<int>(sizeof(line) - 1))
-        {
-            ++pathnamePos;
-        }
-
-        if (pathnamePos > static_cast<int>(sizeof(line) - 1))
-        {
-            continue;
-        }
-
-        size_t pathLen = ::strlen(line + pathnamePos);
-
-        if (pathLen == 0 || pathLen > static_cast<int>(sizeof(line) - 1))
-        {
-            continue;
-        }
-
-        char* pathname = line + pathnamePos;
-
-        while (pathLen > 0 && pathname[pathLen - 1] == '\n')
-        {
-            pathname[pathLen - 1] = '\0';
-            --pathLen;
-        }
-
-        if (cb(start, end, perm, pathname, args))
-        {
-            ::fclose(fp);
-            return true;
-        }
-    }
-
-    ::fclose(fp);
-    return false;
-}
-
-static const char* find_self_maps(const char* base)
-{
-    const char* new_base = nullptr;
-
-    if (base == nullptr)
-    {
-        return new_base;
-    }
-
-    auto&& mapIt = fontsMaps_.find(reinterpret_cast<uintptr_t>(base));
-
-    if (mapIt != fontsMaps_.end())
-    {
-        if (mapIt->second.first == 0)
-        {
-            uintptr_t newAddr = 0;
-
-            for (auto&& it : fontsMaps_)
+            if (__fontData.find(reinterpret_cast<void*>(iter->first)) == __fontData.end())
             {
-                if (it.second.first != 0 && it.second.second == mapIt->second.second)
-                {
-                    newAddr = it.second.first;
-                    break;
-                }
+                LOG("munmap_fonts_maps 0x%x not in fontData", iter->first);
+                iter = fontsMaps_.erase(iter);
+                continue;
             }
 
-            if (newAddr == 0)
+            ++iter;
+        }
+    }
+    else
+    {
+        char device[92] = {0};
+
+        if (__system_property_get("ro.product.model", device) <= 0)
+        {
+            LOG("get ro.product.brand falied");
+            return;
+        }
+
+        bool original_android = true;
+
+        std::set<std::string> names;
+
+        get_fontnames_from_xml(__env, names);
+        LOG("names size %zu", names.size());
+
+        std::unordered_map<std::string, uintptr_t> fontname2addr;
+
+        for (auto iter = fontsMaps_.begin(); iter != fontsMaps_.end(); /* ++iter */)
+        {
+            if (names.count(iter->second.pathname) == 0)
             {
-                int fd = open(mapIt->second.second.c_str(), O_RDONLY);
+                LOG("munmap_fonts_maps %s not in xml", iter->second.pathname.c_str());
+                iter = fontsMaps_.erase(iter);
+                continue;
+            }
 
-                if (fd == -1)
-                {
-                    return new_base;
-                }
+            auto&& fontname2addrIter = fontname2addr.find(iter->second.pathname);
 
-                struct stat st = {};
-
-                if (fstat(fd, &st) != 0)
-                {
-                    close(fd);
-                    return new_base;
-                }
-
-                LOG("find_self_maps file:%s size:%zu", mapIt->second.second.c_str(), static_cast<size_t>(st.st_size));
-                void* addr = mmap(nullptr, static_cast<size_t>(st.st_size), PROT_READ, MAP_PRIVATE, fd, 0);
-
-                if (addr == nullptr)
-                {
-                    close(fd);
-                    return new_base;
-                }
-
-                close(fd);
-
-                LOG("find_self_maps insert new maps old:%p new:%p", base, addr);
-
-                mapIt->second.first = reinterpret_cast<uintptr_t>(addr);
+            if (fontname2addrIter != fontname2addr.end())
+            {
+                LOG("munmap_fonts_maps found multi font");
+                fontsMaps_.erase(fontname2addrIter->second);
+                iter = fontsMaps_.erase(iter);
+                continue;
             }
             else
             {
-                mapIt->second.first = newAddr;
-            }
-        }
-
-        LOG("find_self_maps get maps old:%p new:%p", base, reinterpret_cast<void*>(mapIt->second.first));
-
-        new_base = reinterpret_cast<const char*>(mapIt->second.first);
-    }
-
-    return new_base;
-}
-
-#define GET_OFFSET_PTR(data, offset, type) \
-    reinterpret_cast<type>(reinterpret_cast<size_t>(data) + offset)
-#define GET_OFFSET_DATA(data, offset, type) \
-    *(GET_OFFSET_PTR(data, offset, type))
-
-// num_charmaps offset --> face->num_charmaps --> FT_Set_Charmap
-#define FT_FACE_NUM_CHARMAPS_OFFSET (0x24)
-// num_charmaps offset --> face->charmaps --> FT_Set_Charmap
-#define FT_FACE_CHARMAPS_OFFSET (0x28)
-// num_charmaps offset --> face->charmap --> FT_Set_Charmap
-#define FT_FACE_CHARMAP_OFFSET (0x5c)
-// driver offset --> face->driver --> FT_New_Size
-#define FT_FACE_DRIVER_OFFSET (0x60)
-// stream offset --> face->driver + 8
-#define FT_FACE_STREAM_OFFSET (FT_FACE_DRIVER_OFFSET + 8)
-// extensions offset --> face->internal --> FT_Reference_Face
-#define FT_FACE_INTERNAL_OFFSET (0x80)
-// extensions offset --> face->internal - 4
-#define FT_FACE_EXTERNSIONS_OFFSET (FT_FACE_INTERNAL_OFFSET - 4)
-// ttface offset --> face->internal + 4
-#define FT_FACE_TTFACE_OFFSET (FT_FACE_INTERNAL_OFFSET + 4)
-
-#define SAFE_SWAP(left, right, type) \
-    if (left != right) \
-    { \
-        type tmp = left; \
-        left = right; \
-        right = tmp; \
-    }
-
-#define OFFSET_PTR_SAFE_SWAP(left, right, offset, type, name) \
-    type* left_##name##_ptr = GET_OFFSET_PTR(left, offset, type*); \
-    type* right_##name##_ptr = GET_OFFSET_PTR(right, offset, type*); \
-    LOG("FT_New_Size_proxy left_%s:%p right_%s:%p", #name, *left_##name##_ptr, #name, *right_##name##_ptr); \
-    SAFE_SWAP(*left_##name##_ptr, *right_##name##_ptr, type);
-
-#define FT_FACE_SET_EXTENSIONS(face) \
-    void** extensions_ptr = GET_OFFSET_PTR(face, FT_FACE_EXTERNSIONS_OFFSET, void**); \
-    *extensions_ptr = reinterpret_cast<void*>(find_self_maps);
-
-int FT_New_Size_proxy(void* oldface, void** asize)
-{
-    LOG("FT_New_Size_proxy begin");
-
-    void** extensions_ptr = GET_OFFSET_PTR(oldface, FT_FACE_EXTERNSIONS_OFFSET, void**);
-    LOG("FT_New_Size_proxy extensions:%p", *extensions_ptr);
-
-    if (*extensions_ptr == nullptr)
-    {
-        void* stream = GET_OFFSET_DATA(oldface, FT_FACE_STREAM_OFFSET, void**);
-        // face->stream->base
-        const char* stream_base = GET_OFFSET_DATA(stream, 0x00, const char**);
-        LOG("FT_New_Size_proxy face:%p stream_base:%p", oldface, stream_base);
-
-        const char* new_start = find_self_maps(stream_base);
-
-        if (new_start != nullptr)
-        {
-            // face->face_index
-            signed int face_index = GET_OFFSET_DATA(oldface, 0x04, signed int*);
-            // face->stream->size
-            unsigned int stream_size = GET_OFFSET_DATA(stream, 0x04, unsigned int*);
-            // face->driver
-            void* driver = GET_OFFSET_DATA(oldface, FT_FACE_DRIVER_OFFSET, void**);
-            // face->driver->root->library offset
-            void* library = GET_OFFSET_DATA(driver, 0x04, void**);
-
-            // face->driver->clazz offset --> open_face
-            void* face_clazz = GET_OFFSET_DATA(driver, 0x0c, void**);
-            // face->driver->clazz->face_object_size offset --> open_face
-            unsigned int face_size = GET_OFFSET_DATA(face_clazz, 0x24, unsigned int*);
-            LOG("FT_New_Size_proxy face_size:%d", face_size);
-
-            void* newface = nullptr;
-            int error = FT_New_Memory_Face_(library, new_start, stream_size, face_index, &newface);
-            LOG("FT_New_Size_proxy newface:%p error:%d", newface, error);
-
-            signed int num_charmaps = GET_OFFSET_DATA(oldface, FT_FACE_NUM_CHARMAPS_OFFSET, signed int*);
-            assert(num_charmaps == 4);
-            // swap face->charmaps
-            OFFSET_PTR_SAFE_SWAP(oldface, newface, FT_FACE_CHARMAPS_OFFSET, void**, charmaps);
-
-            for (int i = 0; i < num_charmaps; ++i)
-            {
-                OFFSET_PTR_SAFE_SWAP((*left_charmaps_ptr)[i], (*right_charmaps_ptr)[i], 0x00, void*, charmaps_face);
+                fontname2addr.insert({iter->second.pathname, iter->first});
             }
 
-            // swap face->charmap
-            OFFSET_PTR_SAFE_SWAP(oldface, newface, FT_FACE_CHARMAP_OFFSET, void*, charmap);
-            // swap face->stream
-            OFFSET_PTR_SAFE_SWAP(oldface, newface, FT_FACE_STREAM_OFFSET, void*, stream);
-            // modify face->extensions
-            FT_FACE_SET_EXTENSIONS(oldface);
-
-            // swap ttface
-            size_t ttface_offset = face_size - FT_FACE_TTFACE_OFFSET;
-            assert(ttface_offset > 0);
-            void* ttface = malloc(ttface_offset);
-            memcpy(ttface, GET_OFFSET_PTR(oldface, FT_FACE_TTFACE_OFFSET, void*), ttface_offset);
-            memcpy(GET_OFFSET_PTR(oldface, FT_FACE_TTFACE_OFFSET, void*), GET_OFFSET_PTR(newface, FT_FACE_TTFACE_OFFSET, void*), ttface_offset);
-            memcpy(GET_OFFSET_PTR(newface, FT_FACE_TTFACE_OFFSET, void*), ttface, ttface_offset);
-            free(ttface);
-
-            FT_Done_Face_(newface);
+            ++iter;
         }
     }
 
-    BYTEHOOK_STACK_SCOPE();
-    int ret = BYTEHOOK_CALL_PREV(FT_New_Size_proxy, oldface, asize);
+    LOG("munmap_fonts_maps fontsMaps_.size:%zu", fontsMaps_.size());
 
-    LOG("FT_New_Size_proxy end");
+    for (auto&& iter = fontsMaps_.begin(); iter != fontsMaps_.end(); /* ++iter */)
+    {
+        struct stat st = {};
 
-    return ret;
+        if (::stat(iter->second.pathname.c_str(), &st) != 0)
+        {
+            LOG("munmap_fonts_maps stat failed start:0x%x path:%s", iter->first, iter->second.pathname.c_str());
+
+            iter = fontsMaps_.erase(iter);
+            continue;
+        }
+
+        size_t file_size = static_cast<size_t>(st.st_size);
+
+        if (__black_lists.count(file_size) != 0)
+        {
+            LOG("munmap_fonts_maps filesize hit start:0x%x size:%zu path:%s", iter->first, file_size, iter->second.pathname.c_str());
+
+            iter = fontsMaps_.erase(iter);
+            continue;
+        }
+
+        iter->second.file_size = file_size;
+        ::munmap(reinterpret_cast<void*>(iter->first), iter->second.mmap_size);
+
+        ++iter;
+    }
 }
 
-#define FT_OPEN_MEMORY    0x1
-
-static int FT_Open_Face_proxy(void* library, const void* args, int face_index, void** aface)
+bool get_font_data_from_fontfamily(std::unordered_map<void*, size_t>& __fontData,
+                                   void* __fontFamily,
+                                   GetSkTypeface_t __GetSkTypeface,
+                                   openStream_t __openStream,
+                                   getMemoryBase_t __getMemoryBase,
+                                   getLength_t __getLength,
+                                   getNumFonts_t __getNumFonts,
+                                   getFont_t __getFont,
+                                   GetFontData_t __GetFontData,
+                                   GetFontSize_t __GetFontSize,
+                                   size_t __font_vector_step,
+                                   size_t __font_vector_offset,
+                                   std::set<void*>& __fontFamily_cache,
+                                   std::set<void*>& __font_cache)
 {
-    LOG("FT_Open_Face_proxy begin");
-
-    unsigned int flags = GET_OFFSET_DATA(args, 0, unsigned int*);
-
-    if (flags == FT_OPEN_MEMORY)
+    if (__fontFamily_cache.find(__fontFamily) != __fontFamily_cache.end())
     {
-        const char** memory_base_ptr = GET_OFFSET_PTR(args, sizeof(unsigned int), const char**);
-        LOG("FT_Open_Face_proxy memory_base:%p", *memory_base_ptr);
-
-        const char* new_base = find_self_maps(*memory_base_ptr);
-
-        if (new_base != nullptr)
-        {
-            *memory_base_ptr = new_base;
-        }
+        return true;
     }
 
-    BYTEHOOK_STACK_SCOPE();
-    int ret = BYTEHOOK_CALL_PREV(FT_Open_Face_proxy, library, args, face_index, aface);
-    // modify face->extensions
-    FT_FACE_SET_EXTENSIONS(*aface);
+    __fontFamily_cache.insert(__fontFamily);
 
-    LOG("FT_Open_Face_proxy end");
+    void* font_vector_begin = GET_OFFSET_DATA(__fontFamily, __font_vector_offset, void**)NULLPTR_RETURN(font_vector_begin, false);
+    void* font_vector_end = GET_OFFSET_DATA(__fontFamily, __font_vector_offset + 0x04, void**)NULLPTR_RETURN(font_vector_end, false);
 
-    return ret;
-}
+    size_t fonts_length = (reinterpret_cast<size_t>(font_vector_end) - reinterpret_cast<size_t>(font_vector_begin))EXPRESSION_RETURN(fonts_length, <, 0, false);
+    size_t fonts_remainder = (fonts_length % __font_vector_step)EXPRESSION_RETURN(fonts_remainder, !=, 0, false);
+    size_t fonts_size = (fonts_length / __font_vector_step)EXPRESSION_RETURN(fonts_size, <, 0, false);
 
-#define HB_BLOB_SET_USER_DATA(blob) \
-    hb_blob_set_user_data_(blob,    \
-        reinterpret_cast<void*>(find_self_maps), \
-        reinterpret_cast<void*>(find_self_maps), \
-        nullptr,                    \
-        1);
-
-#define HB_BLOB_GET_USER_DATA(blob) \
-    hb_blob_get_user_data_(blob, reinterpret_cast<void*>(find_self_maps));
-
-#define HB_FONT_SET_USER_DATA(font) \
-    hb_font_set_user_data_(font, \
-        reinterpret_cast<void*>(find_self_maps), \
-        reinterpret_cast<void*>(find_self_maps), \
-        nullptr, \
-        1);
-
-#define HB_FONT_GET_USER_DATA(font) \
-    hb_font_get_user_data_(font, reinterpret_cast<void*>(find_self_maps));
-
-// face offset --> font->driver --> hb_font_get_face
-#define HB_FONT_T_FACE_OFFSET 0x34 // 7.0 7.1 8.0 8.1
-
-void hb_font_set_face_self(void* font, void* face)
-{
-    LOG("hb_font_set_face_self");
-    void** old_face_ptr = GET_OFFSET_PTR(font, HB_FONT_T_FACE_OFFSET, void**);
-    void* old_face = *old_face_ptr;
-
-    hb_face_make_immutable_(face);
-    *old_face_ptr = hb_face_reference_(face);
-
-    hb_face_destroy_(old_face);
-}
-
-void hb_font_relpace_face(void* blob, void* face, void* font, void* parent_font)
-{
-    LOG("hb_font_relpace_face");
-    void* new_face = hb_face_create_(blob, hb_face_get_index_(face));
-
-    hb_font_set_face_(parent_font, new_face);
-    hb_ot_font_set_funcs_(parent_font);
-
-    unsigned int upem = hb_face_get_upem_(new_face);
-    hb_font_set_scale_(parent_font, upem, upem);
-
-    hb_font_set_face_(font, new_face);
-
-    hb_face_destroy_(new_face);
-}
-
-static void hb_font_relpace_face(void* font)
-{
-    void* parent_font = hb_font_get_parent_(font);
-
-    void* parent_font_user_data = HB_FONT_GET_USER_DATA(parent_font);
-
-    LOG("hb_font_relpace_face parent_font_user_data:%p", parent_font_user_data);
-
-    if (parent_font_user_data == nullptr)
+    if (__getNumFonts != nullptr)
     {
-        void* face = hb_font_get_face_(font);
+        size_t size = __getNumFonts(__fontFamily)EXPRESSION_RETURN(size, !=, fonts_size, false);
+    }
 
-        void* blob = hb_face_reference_blob_(face);
+    for (size_t j = 0; j < fonts_size; ++j)
+    {
+        void* font = GET_OFFSET_DATA(font_vector_begin, j * __font_vector_step, void**)NULLPTR_RETURN(font, false);
 
-        void* blob_user_data = HB_BLOB_GET_USER_DATA(blob);
-
-        LOG("hb_font_relpace_face blob_user_data:%p", blob_user_data);
-
-        if (blob_user_data != nullptr)
+        if (__getFont != nullptr)
         {
-            hb_font_relpace_face(blob, face, font, parent_font);
+            void* minikinfont = __getFont(__fontFamily, j)EXPRESSION_RETURN(minikinfont, !=, font, false);
+        }
 
-            HB_FONT_SET_USER_DATA(parent_font);
+        if (__font_cache.find(font) != __font_cache.end())
+        {
+            continue;
+        }
+
+        __font_cache.insert(font);
+
+        const void* memory_data = nullptr;
+        size_t memory_size = 0;
+
+        if (sdk_ver_ >= __ANDROID_API_L__ && sdk_ver_ <= __ANDROID_API_M__)
+        {
+            void* typeface = __GetSkTypeface(font)NULLPTR_RETURN(typeface, false);
+            void* stream = __openStream(typeface, nullptr)NULLPTR_RETURN(stream, false);
+            memory_data = __getMemoryBase(stream)NULLPTR_RETURN(memory_data, false);
+            memory_size = __getLength(stream)EXPRESSION_RETURN(memory_size, <=, 0, false);
         }
         else
         {
-            const char** blob_data_ptr = GET_OFFSET_PTR(blob, get_blob_data_offset(), const char**);
-            LOG("hb_font_relpace_face blob_data:%p, blob:%p", *blob_data_ptr, blob);
-
-            const char* new_base = find_self_maps(*blob_data_ptr);
-
-            if (new_base != nullptr)
-            {
-                *blob_data_ptr = new_base;
-
-                hb_font_relpace_face(blob, face, font, parent_font);
-
-                HB_BLOB_SET_USER_DATA(blob);
-
-                HB_FONT_SET_USER_DATA(parent_font);
-            }
+            memory_data = __GetFontData(font)NULLPTR_RETURN(memory_data, false);
+            memory_size = __GetFontSize(font)EXPRESSION_RETURN(memory_size, <=, 0, false);
         }
 
-        hb_blob_destroy_(blob);
-    }
-}
-
-static void* hb_blob_create_proxy(const char* data, unsigned int length, int mode, void* user_data, hb_destroy_func_t destroy)
-{
-    LOG("hb_blob_create_proxy begin");
-
-    const char* new_base = find_self_maps(data);
-
-    if (new_base != nullptr)
-    {
-        data = new_base;
-    }
-
-    BYTEHOOK_STACK_SCOPE();
-    void* ret = BYTEHOOK_CALL_PREV(hb_blob_create_proxy, data, length, mode, user_data, destroy);
-    LOG("hb_blob_create_proxy blob_data:%p, blob:%p", data, ret);
-
-    if (ret != nullptr && new_base != nullptr)
-    {
-        HB_BLOB_SET_USER_DATA(ret);
-    }
-
-    LOG("hb_blob_create_proxy end");
-
-    return ret;
-}
-
-static void* hb_font_reference_proxy(void* font)
-{
-    LOG("hb_font_reference_proxy begin");
-
-    hb_font_relpace_face(font);
-
-    BYTEHOOK_STACK_SCOPE();
-    void* ret = BYTEHOOK_CALL_PREV(hb_font_reference_proxy, font);
-
-    LOG("hb_font_reference_proxy end");
-    return ret;
-}
-
-static void* hb_font_get_face_proxy(void* parent)
-{
-    LOG("hb_font_get_face_proxy begin");
-
-    hb_font_relpace_face(parent);
-
-    BYTEHOOK_STACK_SCOPE();
-    void* ret = BYTEHOOK_CALL_PREV(hb_font_get_face_proxy, parent);
-
-    LOG("hb_font_get_face_proxy end");
-    return ret;
-}
-
-#define LIBHARFBUZZ_NG "libharfbuzz_ng.so"
-#define LIBFT2 "libft2.so"
-
-#define GET_HANDLE(handle, filename, flags) \
-    if (handle == nullptr) \
-    { \
-        handle = xdl_open("/system/lib/" filename, flags); \
-        if (handle == nullptr) \
-        { \
-            LOG(#handle " == nullptr"); \
-            return false; \
-        } \
-    }
-
-#define CLOSE_HANDLE(handle) \
-    if (handle != nullptr) \
-    { \
-        xdl_close(handle); \
-        handle = nullptr; \
-    }
-
-#define GET_FUN(handle, name) \
-    if (name##_ == nullptr) \
-    { \
-        name##_ = reinterpret_cast<name##_t>(xdl_sym(handle, #name, nullptr)); \
-        if (name##_ == nullptr) \
-        { \
-            LOG(#name " == nullptr"); \
-            return false; \
-        } \
-    }
-
-static bool check_blob_data_offset()
-{
-    bool ret = false;
-
-    const char* ptr = nullptr;
-    void* blob = hb_blob_create_(ptr, sizeof(ptr), 1, nullptr, nullptr);
-    const char** blob_data_ptr = GET_OFFSET_PTR(blob, get_blob_data_offset(), const char**);
-
-    if (ptr == *blob_data_ptr)
-    {
-        LOG("get_blob_data_offset good");
-        ret = true;
-    }
-
-    hb_blob_destroy_(blob);
-
-    return ret;
-}
-
-#define CHECK_BLOB_DATA_OFFSET() \
-    if (!check_blob_data_offset()) \
-    { \
-        LOG("check blob data offset fail"); \
-        return false; \
-    }
-
-static void hooked_callback(bytehook_stub_t task_stub, int status_code, const char* caller_path_name, const char* sym_name, void* new_func, void* prev_func, void* arg)
-{
-    LOG("hooked_callback task_stub:%p, status_code:%d, caller_path_name:%s, sym_name:%s, new_func:%p, prev_func:%p, arg:%p", task_stub, status_code, caller_path_name, sym_name, new_func, prev_func, arg);
-}
-
-
-static void munmap_fonts_maps()
-{
-    IterateMaps([&](uintptr_t start, uintptr_t end, char perms[4], const char* path, void* args) -> bool
-    {
-        if (::strstr(path, "ttf") != nullptr || ::strstr(path, "otf") != nullptr || ::strstr(path, "ttc") != nullptr)
+        if (!check_maps(memory_data, memory_size, __fontData))
         {
-            LOG("IterateMaps 0x%x-0x%x:%zu %s", start, end, end - start, path);
+            LOG("check_maps failed!");
+            return false;
+        }
+    }
 
-#if 0       // 使用hook FT_New_Size代替
+    return true;
+}
 
-            if (::strstr(path, "/system/fonts/Roboto-Regular.ttf") != nullptr)
-            {
-                return false;
-            }
+bool get_font_data_from_fontfamily_vector(std::unordered_map<void*, size_t>& __fontData,
+        void* __typeface_native,
+        GetSkTypeface_t __GetSkTypeface,
+        openStream_t __openStream,
+        getMemoryBase_t __getMemoryBase,
+        getLength_t __getLength,
+        getNumFonts_t __getNumFonts,
+        getFont_t __getFont,
+        GetFontData_t __GetFontData,
+        GetFontSize_t __GetFontSize,
+        size_t __fontFamily_vector_step,
+        size_t __font_vector_step,
+        size_t __fontFamily_vector_offset,
+        size_t __fontFamily_offset,
+        size_t __font_vector_offset,
+        std::set<void*>& __fontFamily_cache,
+        std::set<void*>& __font_cache)
+{
+    void* fontCollection = GET_OFFSET_DATA(__typeface_native, 0x00, void**)NULLPTR_RETURN(fontCollection, false);
+
+    void* fontFamily_vector_begin = GET_OFFSET_DATA(fontCollection, __fontFamily_vector_offset, void**)NULLPTR_RETURN(fontFamily_vector_begin, false);
+    void* fontFamily_vector_end = GET_OFFSET_DATA(fontCollection, __fontFamily_vector_offset + 0x04, void**)NULLPTR_RETURN(fontFamily_vector_end, false);
+
+    size_t fontFamily_length = (reinterpret_cast<size_t>(fontFamily_vector_end) - reinterpret_cast<size_t>(fontFamily_vector_begin))EXPRESSION_RETURN(fontFamily_length, <, 0, false);
+    size_t fontFamily_remainder = (fontFamily_length % __fontFamily_vector_step)EXPRESSION_RETURN(fontFamily_remainder, !=, 0, false);
+    size_t fontFamily_size = (fontFamily_length / __fontFamily_vector_step)EXPRESSION_RETURN(fontFamily_size, <, 0, false);
+
+    for (size_t i = 0; i < fontFamily_size; ++i)
+    {
+        void* fontFamily = GET_OFFSET_DATA(fontFamily_vector_begin, i * __fontFamily_vector_step + __fontFamily_offset, void**)NULLPTR_RETURN(fontFamily, false);
+
+        bool result = get_font_data_from_fontfamily(__fontData,
+                      fontFamily,
+                      __GetSkTypeface,
+                      __openStream,
+                      __getMemoryBase,
+                      __getLength,
+                      __getNumFonts,
+                      __getFont,
+                      __GetFontData,
+                      __GetFontSize,
+                      __font_vector_step,
+                      __font_vector_offset,
+                      __fontFamily_cache,
+                      __font_cache)EXPRESSION_RETURN(result, ==, false, false);
+    }
+
+    return true;
+}
+
+bool get_font_data(JNIEnv* __env, std::unordered_map<void*, size_t>& __fontData)
+{
+    GetSkTypeface_t GetSkTypeface = nullptr;
+    openStream_t openStream = nullptr;
+    getMemoryBase_t getMemoryBase = nullptr;
+    getLength_t getLength = nullptr;
+    getNumFonts_t getNumFonts = nullptr;
+    getFont_t getFont = nullptr;
+    GetFontData_t GetFontData = nullptr;
+    GetFontSize_t GetFontSize = nullptr;
+
+    if (sdk_ver_ >= __ANDROID_API_L__ && sdk_ver_ <= __ANDROID_API_M__)
+    {
+        void* libandroid_runtime = nullptr;
+        GET_HANDLE(libandroid_runtime, XDL_DEFAULT);
+        GET_CPLUSPLUS_FUN(libandroid_runtime, GetSkTypeface, "_ZNK7android15MinikinFontSkia13GetSkTypefaceEv");
+        CLOSE_HANDLE(libandroid_runtime); // 只是减少引用计数，并不会真正unload
+
+        void* libskia = nullptr;
+        GET_HANDLE(libskia, XDL_DEFAULT);
+        GET_CPLUSPLUS_FUN(libskia, openStream, "_ZNK10SkTypeface10openStreamEPi");
+        GET_CPLUSPLUS_FUN(libskia, getMemoryBase, "_ZN14SkMemoryStream13getMemoryBaseEv");
+        GET_CPLUSPLUS_FUN(libskia, getLength, "_ZNK14SkMemoryStream9getLengthEv");
+        CLOSE_HANDLE(libskia); // 只是减少引用计数，并不会真正unload
+    }
+    else
+    {
+        void* libhwui = nullptr;
+        GET_HANDLE(libhwui, XDL_DEFAULT);
+        GET_CPLUSPLUS_FUN(libhwui, GetFontData, "_ZNK7android15MinikinFontSkia11GetFontDataEv");
+        GET_CPLUSPLUS_FUN(libhwui, GetFontSize, "_ZNK7android15MinikinFontSkia11GetFontSizeEv");
+        CLOSE_HANDLE(libhwui); // 只是减少引用计数，并不会真正unload
+    }
+
+    if (sdk_ver_ >= __ANDROID_API_L__ && sdk_ver_ <= __ANDROID_API_N_MR1__)
+    {
+        void* libminikin = nullptr;
+        GET_HANDLE(libminikin, XDL_DEFAULT);
+        TRY_GET_CPLUSPLUS_FUN(libminikin, getNumFonts, "_ZNK7android10FontFamily11getNumFontsEv");
+        TRY_GET_CPLUSPLUS_FUN(libminikin, getFont, "_ZNK7android10FontFamily7getFontEj");
+        CLOSE_HANDLE(libminikin); // 只是减少引用计数，并不会真正unload
+    }
+
+#if DEBUGGABLE
+
+    if (sdk_ver_ >= __ANDROID_API_L__ && sdk_ver_ <= __ANDROID_API_O_MR1__)
+    {
+        // gMinikinLock _ZN7android12gMinikinLockE
+    }
 
 #endif
-            fontsMaps_.insert({start, {0, path}});
 
-            ::munmap(reinterpret_cast<void*>(start), end - start);
+    size_t fontFamily_vector_step = get_fontFamily_vector_step()EXPRESSION_RETURN(fontFamily_vector_step, <=, 0, false);
+    size_t font_vector_step = get_font_vector_step()EXPRESSION_RETURN(font_vector_step, <=, 0, false);
+    size_t fontFamily_vector_offset = get_fontFamily_vector_offset()EXPRESSION_RETURN(fontFamily_vector_offset, <, 0, false);
+    size_t fontFamily_offset = get_fontFamily_offset()EXPRESSION_RETURN(fontFamily_offset, <, 0, false);
+    size_t font_vector_offset = get_font_vector_offset()EXPRESSION_RETURN(font_vector_offset, <, 0, false);
+
+    std::set<void*> fontFamily_cache, font_cache;
+
+    std::set<void*> fontFamily_native_ptrs;
+
+#if SPECIAL_MACHINE_ANDROID
+
+    if (::strcasestr(brand_.c_str(), "motorola"))
+    {
+        if (sdk_ver_ == __ANDROID_API_N__ || sdk_ver_ == __ANDROID_API_N_MR1__)
+        {
+            std::unordered_map<std::string, std::string> fontFamilyfields;
+
+            get_fallbackFonts_for_motorola_from_java(__env, fontFamilyfields);
+
+            if (!fontFamilyfields.empty())
+            {
+                get_fontFamily_native_ptrs_from_java(__env, fontFamilyfields, fontFamily_native_ptrs);
+            }
         }
-        return false;
-    });
+    }
+
+#endif
+
+    if (sdk_ver_ == __ANDROID_API_P__)
+    {
+        std::unordered_map<std::string, std::string> systemFallbackMapields;
+        systemFallbackMapields.emplace("sSystemFallbackMap", "Ljava/util/Map;");
+        get_fontFamily_native_ptrs_by_map_from_java(__env, systemFallbackMapields, fontFamily_native_ptrs);
+    }
+
+    bool get_font_data_from_fontfamily_result = !fontFamily_native_ptrs.empty();
+
+    for (auto&& iter : fontFamily_native_ptrs)
+    {
+        void* fontFamily = iter;
+
+        if (sdk_ver_ >= __ANDROID_API_O__)
+        {
+            fontFamily = GET_OFFSET_DATA(iter, 0x00, void**)NULLPTR_RETURN(fontFamily, true);
+        }
+
+        if (!get_font_data_from_fontfamily(__fontData,
+                                           fontFamily,
+                                           GetSkTypeface,
+                                           openStream,
+                                           getMemoryBase,
+                                           getLength,
+                                           getNumFonts,
+                                           getFont,
+                                           GetFontData,
+                                           GetFontSize,
+                                           font_vector_step,
+                                           font_vector_offset,
+                                           fontFamily_cache,
+                                           font_cache))
+        {
+            get_font_data_from_fontfamily_result = false;
+            break;
+        }
+    }
+
+    std::set<void*> typeface_native_ptrs;
+
+    if (sdk_ver_ != __ANDROID_API_P__ || !get_font_data_from_fontfamily_result)
+    {
+        std::unordered_map<std::string, std::string> systemFontMapFields;
+        systemFontMapFields.emplace("sSystemFontMap", "Ljava/util/Map;");
+
+#if SPECIAL_MACHINE_ANDROID
+
+        if (::strcasestr(brand_.c_str(), "OnePlus"))
+        {
+            if (sdk_ver_ == __ANDROID_API_N_MR1__)
+            {
+                // systemFontMapFields.insert({"sOriginSystemFontMap", "Ljava/util/Map;"}); // 使用sSystemFontMap代替
+                systemFontMapFields.emplace("sSlateSystemFontMap", "Ljava/util/Map;");
+            }
+        }
+        else if (::strcasestr(brand_.c_str(), "OPPO"))
+        {
+            if (sdk_ver_ == __ANDROID_API_N__ || sdk_ver_ == __ANDROID_API_N_MR1__)
+            {
+                std::unordered_map<std::string, std::string> typefaceFields;
+                typefaceFields.emplace("COLOROSUI_LIGHT", "Landroid/graphics/Typeface;");
+                typefaceFields.emplace("COLOROSUI_THIN", "Landroid/graphics/Typeface;");
+                typefaceFields.emplace("COLOROSUI_XLIGHT", "Landroid/graphics/Typeface;");
+                typefaceFields.emplace("COLOROSUI_XTHIN", "Landroid/graphics/Typeface;");
+                typefaceFields.emplace("DEFAULT_BOLD", "Landroid/graphics/Typeface;");
+
+                get_typeface_native_ptrs_from_java(__env, typefaceFields, typeface_native_ptrs);
+            }
+        }
+
+#endif
+
+        get_typeface_native_ptrs_by_map_from_java(__env, systemFontMapFields, typeface_native_ptrs);
+    }
+
+    for (auto&& iter : typeface_native_ptrs)
+    {
+        bool result = get_font_data_from_fontfamily_vector(__fontData,
+                      iter,
+                      GetSkTypeface,
+                      openStream,
+                      getMemoryBase,
+                      getLength,
+                      getNumFonts,
+                      getFont,
+                      GetFontData,
+                      GetFontSize,
+                      fontFamily_vector_step,
+                      font_vector_step,
+                      fontFamily_vector_offset,
+                      fontFamily_offset,
+                      font_vector_offset,
+                      fontFamily_cache,
+                      font_cache)EXPRESSION_RETURN(result, ==, false, false);
+    }
+
+    return !__fontData.empty();
 }
 
-#define HOOK_SINGLE(libname, symbol) \
-    bytehook_hook_single(libname, nullptr, #symbol, reinterpret_cast<void*>(symbol##_proxy), hooked_callback, nullptr)
-
-bool AndroidFontsExt_Install()
+bool AndroidFontsExt_Install(JNIEnv* __env, jint __sdk_ver, jintArray __black_list)
 {
-    sdk_ver_ = android_get_device_api_level();
+    if (__sdk_ver < __ANDROID_API_L__ || __sdk_ver > __ANDROID_API_R__)
+    {
+        LOG("sdk_ver not match : %d", __sdk_ver);
+        return false;
+    }
+
+    sdk_ver_ = __sdk_ver;
     LOG("sdk_ver_ : %d", sdk_ver_);
 
-    if (sdk_ver_ >= __ANDROID_API_L__ && sdk_ver_ <= __ANDROID_API_R__)
+    char brand[92] = {0};
+
+    if (__system_property_get("ro.product.brand", brand) <= 0)
     {
-        bytehook_init(BYTEHOOK_MODE_AUTOMATIC, false);
+        LOG("get ro.product.brand falied");
+        return false;
+    }
 
-        void* libft2_handle = nullptr;
-        GET_HANDLE(libft2_handle, LIBFT2, XDL_DEFAULT);
+    brand_ = brand;
+    LOG("brand:%s", brand);
 
-        GET_FUN(libft2_handle, FT_Done_Face);
-        GET_FUN(libft2_handle, FT_New_Memory_Face);
+    found_ttf_maps([&](uintptr_t __start, uintptr_t __end, char __perms[4], const char* __path) -> bool
+    {
+        fontsMaps_.insert({__start, {__end - __start, __perms, __path}});
+        return false;
+    });
 
-        CLOSE_HANDLE(libft2_handle); // 只是减少引用计数，并不会真正unload
+    std::unordered_map<void*, size_t> fontData;
 
-        if (sdk_ver_ >= __ANDROID_API_L__ && sdk_ver_ <= __ANDROID_API_O_MR1__)
+
+#if DEBUGGABLE
+
+    if (sdk_ver_ == __ANDROID_API_Q__ || sdk_ver_ == __ANDROID_API_R__)
+    {
+        get_font_data_from_java(__env, fontData);
+    }
+
+    if (fontData.empty())
+    {
+        if (!get_font_data(__env, fontData))
         {
-            HOOK_SINGLE("libskia.so", FT_Open_Face);
-            HOOK_SINGLE("libskia.so", FT_New_Size);
+            LOG("get_font_data failed!");
+        }
+
+    }
+
+#else
+
+    if (!signal_register(SIGSEGV))
+    {
+        LOG("signal handler reg failed.");
+        return false;
+    }
+
+    signal_flag_ = 1;
+
+    if (0 == sigsetjmp(time_machine_, 1))
+    {
+        if (!get_font_data(__env, fontData))
+        {
+            std::unordered_map<void*, size_t> ().swap(fontData);
+            LOG("get_font_data failed!");
+        }
+    }
+    else
+    {
+        std::unordered_map<void*, size_t> ().swap(fontData);
+        LOG("native init failed, found exception signal.");
+    }
+
+    signal_flag_ = 0;
+
+    if (!signal_unregister(SIGSEGV))
+    {
+        LOG("signal handler unreg failed.");
+        return false;
+    }
+
+#endif
+
+    LOG("fontData size:%zu", fontData.size());
+
+    bytehook_init(BYTEHOOK_MODE_AUTOMATIC, false);
+
+    if (sdk_ver_ >= __ANDROID_API_L__ && sdk_ver_ <= __ANDROID_API_M__)
+    {
+        HOOK_PARTIAL(libskia_filter, mmap);
+    }
+    else
+    {
+        HOOK_SINGLE("libopenjdk.so", mmap64);
+#if DEBUGGABLE
+        HOOK_SINGLE("libopenjdk.so", munmap);
+#endif
+    }
+
+    void* libft2 = nullptr;
+    GET_HANDLE(libft2, XDL_DEFAULT);
+
+    GET_C_FUN(libft2, FT_Done_Face);
+    GET_C_FUN(libft2, FT_New_Memory_Face);
+
+    CLOSE_HANDLE(libft2); // 只是减少引用计数，并不会真正unload
+
+    if (sdk_ver_ >= __ANDROID_API_L__ && sdk_ver_ <= __ANDROID_API_O_MR1__)
+    {
+        HOOK_PARTIAL(libskia_filter, FT_Open_Face);
+        HOOK_PARTIAL(libskia_filter, FT_New_Size);
+    }
+    else
+    {
+        HOOK_SINGLE("libhwui.so", FT_Open_Face);
+        HOOK_SINGLE("libhwui.so", FT_New_Size);
+    }
+
+    if (sdk_ver_ >= __ANDROID_API_N__)
+    {
+        void* libharfbuzz_ng = nullptr;
+        GET_HANDLE(libharfbuzz_ng, XDL_DEFAULT);
+
+        GET_C_FUN(libharfbuzz_ng, hb_blob_create);
+        GET_C_FUN(libharfbuzz_ng, hb_blob_destroy);
+        CHECK_BLOB_DATA_OFFSET();
+
+        GET_C_FUN(libharfbuzz_ng, hb_face_reference_blob);
+        GET_C_FUN(libharfbuzz_ng, hb_blob_set_user_data);
+        GET_C_FUN(libharfbuzz_ng, hb_blob_get_user_data);
+
+        GET_C_FUN(libharfbuzz_ng, hb_font_get_face);
+        GET_C_FUN(libharfbuzz_ng, hb_ot_font_set_funcs);
+        GET_C_FUN(libharfbuzz_ng, hb_font_get_parent);
+        GET_C_FUN(libharfbuzz_ng, hb_font_set_user_data);
+        GET_C_FUN(libharfbuzz_ng, hb_font_get_user_data);
+
+        GET_C_FUN(libharfbuzz_ng, hb_face_create);
+        GET_C_FUN(libharfbuzz_ng, hb_face_get_index);
+        GET_C_FUN(libharfbuzz_ng, hb_face_get_upem);
+        GET_C_FUN(libharfbuzz_ng, hb_font_set_scale);
+        GET_C_FUN(libharfbuzz_ng, hb_face_destroy);
+
+        if (sdk_ver_ >= __ANDROID_API_P__)
+        {
+            GET_C_FUN(libharfbuzz_ng, hb_font_set_face);
         }
         else
         {
-            HOOK_SINGLE("libhwui.so", FT_Open_Face);
-            HOOK_SINGLE("libhwui.so", FT_New_Size);
+            GET_C_FUN(libharfbuzz_ng, hb_face_make_immutable);
+            GET_C_FUN(libharfbuzz_ng, hb_face_reference);
+
+            hb_font_set_face_ = hb_font_set_face_self;
         }
 
-        if (sdk_ver_ >= __ANDROID_API_N__)
+        HOOK_SINGLE("libminikin.so", hb_blob_create);
+
+        if (sdk_ver_ <= __ANDROID_API_O_MR1__)
         {
-            void* libharfbuzz_ng_handle = nullptr;
-            GET_HANDLE(libharfbuzz_ng_handle, LIBHARFBUZZ_NG, XDL_DEFAULT);
-
-            GET_FUN(libharfbuzz_ng_handle, hb_blob_create);
-            GET_FUN(libharfbuzz_ng_handle, hb_blob_destroy);
-            CHECK_BLOB_DATA_OFFSET();
-
-            GET_FUN(libharfbuzz_ng_handle, hb_face_reference_blob);
-            GET_FUN(libharfbuzz_ng_handle, hb_blob_set_user_data);
-            GET_FUN(libharfbuzz_ng_handle, hb_blob_get_user_data);
-
-            GET_FUN(libharfbuzz_ng_handle, hb_font_get_face);
-            GET_FUN(libharfbuzz_ng_handle, hb_ot_font_set_funcs);
-            GET_FUN(libharfbuzz_ng_handle, hb_font_get_parent);
-            GET_FUN(libharfbuzz_ng_handle, hb_font_set_user_data);
-            GET_FUN(libharfbuzz_ng_handle, hb_font_get_user_data);
-
-            GET_FUN(libharfbuzz_ng_handle, hb_face_create);
-            GET_FUN(libharfbuzz_ng_handle, hb_face_get_index);
-            GET_FUN(libharfbuzz_ng_handle, hb_face_get_upem);
-            GET_FUN(libharfbuzz_ng_handle, hb_font_set_scale);
-            GET_FUN(libharfbuzz_ng_handle, hb_face_destroy);
-
-            if (sdk_ver_ >= __ANDROID_API_P__)
-            {
-                GET_FUN(libharfbuzz_ng_handle, hb_font_set_face);
-            }
-            else
-            {
-                GET_FUN(libharfbuzz_ng_handle, hb_face_make_immutable);
-                GET_FUN(libharfbuzz_ng_handle, hb_face_reference);
-
-                hb_font_set_face_ = hb_font_set_face_self;
-            }
-
-            HOOK_SINGLE("libminikin.so", hb_blob_create);
-
-            if (sdk_ver_ <= __ANDROID_API_O_MR1__)
-            {
-                HOOK_SINGLE("libminikin.so", hb_font_reference);
-            }
-            else
-            {
-                HOOK_SINGLE("libminikin.so", hb_font_get_face);
-            }
-
-            CLOSE_HANDLE(libharfbuzz_ng_handle); // 只是减少引用计数，并不会真正unload
+            HOOK_SINGLE("libminikin.so", hb_font_reference);
+        }
+        else
+        {
+            HOOK_SINGLE("libminikin.so", hb_font_get_face);
         }
 
-        munmap_fonts_maps();
+        CLOSE_HANDLE(libharfbuzz_ng); // 只是减少引用计数，并不会真正unload
     }
+
+    std::unordered_set<size_t> blacklist;
+
+    get_blacklist_from_java(__env, __black_list, blacklist);
+
+    munmap_fonts_maps(__env, fontData, blacklist);
 
     return true;
 }

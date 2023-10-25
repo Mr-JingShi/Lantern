@@ -1,0 +1,288 @@
+#pragma once
+
+#include <stddef.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <sys/mman.h>
+#include <inttypes.h>
+
+#include <string>
+#include <unordered_map>
+
+#include "lantern_log.spp"
+
+struct procSelfMaps
+{
+    procSelfMaps(size_t __mmap_size, const char* __perms, const std::string& __pathname)
+            : new_addr(0)
+            , file_size(0)
+            , mmap_size(__mmap_size)
+            , pathname(__pathname)
+    {
+        memcpy(this->perms, __perms, 4);
+    }
+
+    uintptr_t new_addr; // new start addr
+    size_t file_size; // file size
+    size_t mmap_size; // mmap size
+    char perms[4];
+    std::string pathname;
+};
+
+static std::unordered_map<uintptr_t, procSelfMaps> fontsMaps_; // old addr <---> procSelfMaps
+
+using MapsEntryCallback = std::function<bool(uintptr_t, uintptr_t, char[4], const char*)>;
+
+static bool found_ttf_maps(const MapsEntryCallback& __cb)
+{
+    FILE* fp = nullptr;
+    char line[PATH_MAX] = {0};
+
+    if ((fp = ::fopen("/proc/self/maps", "r")) == nullptr)
+    {
+        return false;
+    }
+
+    while (::fgets(line, sizeof(line), fp) != nullptr)
+    {
+        if (::strcasestr(line, ".ttf") == nullptr
+            && ::strcasestr(line, ".otf") == nullptr
+            && ::strcasestr(line, ".ttc") == nullptr)
+        {
+            continue;
+        }
+
+        uintptr_t start = 0;
+        uintptr_t end = 0;
+        char perm[4] = {};
+        int pathnamePos = 0;
+
+        if (::sscanf(line, "%" PRIxPTR "-%" PRIxPTR " %4c %*x %*x:%*x %*d%n",
+                &start, &end, perm, &pathnamePos) != 3)
+        {
+            continue;
+        }
+
+        if (pathnamePos <= 0)
+        {
+            continue;
+        }
+
+        while (::isspace(line[pathnamePos]) && pathnamePos <= static_cast<int>(sizeof(line) - 1))
+        {
+            ++pathnamePos;
+        }
+
+        if (pathnamePos > static_cast<int>(sizeof(line) - 1))
+        {
+            continue;
+        }
+
+        size_t pathLen = ::strlen(line + pathnamePos);
+
+        if (pathLen == 0 || pathLen > static_cast<int>(sizeof(line) - 1))
+        {
+            continue;
+        }
+
+        char* pathname = line + pathnamePos;
+
+        while (pathLen > 0 && pathname[pathLen - 1] == '\n')
+        {
+            pathname[pathLen - 1] = '\0';
+            --pathLen;
+        }
+
+        if (__cb(start, end, perm, pathname))
+        {
+            ::fclose(fp);
+            return true;
+        }
+    }
+
+    ::fclose(fp);
+    return false;
+}
+
+static const char* find_self_maps(const char* __memory_base, size_t __memory_size)
+{
+    if (__memory_base == nullptr || __memory_size == 0)
+    {
+        return nullptr;
+    }
+
+    auto&& mapIt = fontsMaps_.find(reinterpret_cast<uintptr_t>(__memory_base));
+
+    if (mapIt == fontsMaps_.end())
+    {
+        return nullptr;
+    }
+
+    if (mapIt->second.new_addr != 0)
+    {
+        if (__memory_size == mapIt->second.file_size)
+        {
+            LOG("find_self_maps get maps old:%p new:%p", __memory_base, reinterpret_cast<void*>(mapIt->second.new_addr));
+            return reinterpret_cast<const char*>(mapIt->second.new_addr);
+        }
+
+        return nullptr;
+    }
+
+    for (auto&& it : fontsMaps_)
+    {
+        if (__memory_size == it.second.file_size
+            && it.second.new_addr != 0
+            && it.second.pathname == mapIt->second.pathname)
+        {
+            mapIt->second.file_size = it.second.file_size;
+            mapIt->second.new_addr = it.second.new_addr;
+
+            LOG("find_self_maps get repeat maps old:%p new:%p", __memory_base, reinterpret_cast<void*>(mapIt->second.new_addr));
+            return reinterpret_cast<const char*>(mapIt->second.new_addr);
+        }
+    }
+
+    int prot = PROT_NONE;
+    int flags = O_RDONLY;
+
+    if (mapIt->second.perms[0] == 'r')
+    {
+        prot |= PROT_READ;
+    }
+
+    if (mapIt->second.perms[1] == 'w')
+    {
+        prot |= PROT_WRITE;
+        flags = O_RDWR;
+    }
+
+    if (mapIt->second.perms[2] == 'x')
+    {
+        prot |= PROT_EXEC;
+        flags |= O_EXCL;
+    }
+
+    int fd = open(mapIt->second.pathname.c_str(), flags);
+
+    if (fd == -1)
+    {
+        return nullptr;
+    }
+
+    struct stat st = {};
+
+    if (fstat(fd, &st) != 0)
+    {
+        close(fd);
+        return nullptr;
+    }
+
+    size_t file_size = static_cast<size_t>(st.st_size);
+
+    if (__memory_size != file_size)
+    {
+        close(fd);
+        return nullptr;
+    }
+
+    flags = 0;
+
+    if (mapIt->second.perms[3] == 's')
+    {
+        flags |= MAP_SHARED;
+    }
+    else
+    {
+        flags |= MAP_PRIVATE;
+    }
+
+    LOG("find_self_maps file:%s size:%zu", mapIt->second.pathname.c_str(), file_size);
+
+    void* addr = nullptr;
+    std::set<void*> addrs;
+
+    while (1)
+    {
+        addr = mmap(nullptr, file_size, prot, flags, fd, 0);
+
+        if (addr == nullptr)
+        {
+            break;
+        }
+
+        auto&& iter = fontsMaps_.find(reinterpret_cast<uintptr_t>(addr));
+
+        if (iter == fontsMaps_.end())
+        {
+            break;
+        }
+
+        if (iter->second.file_size != file_size)
+        {
+            break;
+        }
+
+        if (iter->second.pathname == mapIt->second.pathname)
+        {
+            break;
+        }
+
+        addrs.emplace(addr);
+    }
+
+    for (auto&& iter : addrs)
+    {
+        munmap(iter, file_size);
+    }
+
+    close(fd);
+
+    if (addr == nullptr)
+    {
+        return nullptr;
+    }
+
+    LOG("find_self_maps insert new maps old:%p new:%p", __memory_base, addr);
+
+    mapIt->second.new_addr = reinterpret_cast<uintptr_t>(addr);
+
+    return reinterpret_cast<const char*>(mapIt->second.new_addr);
+}
+
+
+bool check_maps(const void* __memory_data, size_t __memory_size, std::unordered_map<void*, size_t>& __fontData)
+{
+    uintptr_t memory_data = reinterpret_cast<uintptr_t>(__memory_data);
+    auto&& fontMapsIter = fontsMaps_.find(memory_data);
+
+    if (fontMapsIter == fontsMaps_.end())
+    {
+        LOG("memory_data:%p memory_size:%zu not in fontsMaps_, ERROR!!!", __memory_data, __memory_size);
+        return false;
+    }
+
+    if (fontMapsIter->second.mmap_size < __memory_size)
+    {
+        LOG("fontMapsIter->second.mmap_size:%zu < memory_size:%zu, ERROR!!!", fontMapsIter->second.mmap_size, __memory_size);
+        return false;
+    }
+
+    auto&& fontDataiter = __fontData.find(const_cast<void*>(__memory_data));
+
+    if (fontDataiter != __fontData.end())
+    {
+        if (fontDataiter->second != __memory_size)
+        {
+            LOG("fontDataiter->second:%zu != memory_size:%zu, ERROR!!!", fontDataiter->second, __memory_size);
+            return false;
+        }
+    }
+    else
+    {
+        __fontData.insert({const_cast<void*>(__memory_data), __memory_size});
+    }
+
+    return true;
+}
+
