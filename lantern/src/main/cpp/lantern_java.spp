@@ -10,39 +10,44 @@
 
 /*
 * ===================================================================================================================================================================
-* API-LEVEL   VERSION   SOLUTION
+* API-LEVEL   VERSION   MMAP-IN   SOLUTION
 * ===================================================================================================================================================================
-* 21          5.0       Typeface.sSystemFontMap --> Typeface.native_instance
-*                    OR FontListParser.parse --> FontListParser.Config --> FontListParser.Family --> FontListParser.Font.fontName
-*                    OR /system/etc/fonts.xml
-* 22          5.1       Typeface.sSystemFontMap --> Typeface.native_instance
-*                    OR FontListParser.parse --> FontListParser.Config --> FontListParser.Family --> FontListParser.Font.fontName
-*                    OR /system/etc/fonts.xml
-* 23          6.0       Typeface.sSystemFontMap --> Typeface.native_instance
-*                    OR FontListParser.parse --> FontListParser.Config --> FontListParser.Family --> FontListParser.Font.fontName
-*                    OR /system/etc/fonts.xml
-* 24          7.0       Typeface.sSystemFontMap --> Typeface.native_instance
-*                    OR FontListParser.parse --> FontListParser.Config --> FontListParser.Family --> FontListParser.Font.fontName
-*                    OR /system/etc/fonts.xml
-* 25          7.1       Typeface.sSystemFontMap --> Typeface.native_instance
-*                    OR FontListParser.parse --> FontListParser.Config --> FontListParser.Family --> FontListParser.Font.fontName
-*                    OR /system/etc/fonts.xml
-* 26          8.0       Typeface.sSystemFontMap --> Typeface.native_instance
-*                    OR FontListParser.parse --> FontConfig --> FontConfig.Family --> FontConfig.Font.getFontName()
-*                    OR /system/etc/fonts.xml
-* 27          8.1       Typeface.sSystemFontMap --> Typeface.native_instance
-*                    OR FontListParser.parse --> FontConfig --> FontConfig.Family --> FontConfig.Font.getFontName()
-*                    OR /system/etc/fonts.xml
+* 21          5.0       c++           munmap all in /proc/self/maps since mmap in native
+*                                 OR Typeface.sSystemFontMap --> Typeface.native_instance
+*                                 OR FontListParser.parse --> FontListParser.Config --> FontListParser.Family --> FontListParser.Font.fontName
+*                                 OR /system/etc/fonts.xml
+* 22          5.1       c++          munmap all in /proc/self/maps since mmap in native
+*                                 OR Typeface.sSystemFontMap --> Typeface.native_instance
+*                                 OR FontListParser.parse --> FontListParser.Config --> FontListParser.Family --> FontListParser.Font.fontName
+*                                 OR /system/etc/fonts.xml
+* 23          6.0       c++          munmap all in /proc/self/maps since mmap in native
+*                                 OR Typeface.sSystemFontMap --> Typeface.native_instance
+*                                 OR FontListParser.parse --> FontListParser.Config --> FontListParser.Family --> FontListParser.Font.fontName
+*                                 OR /system/etc/fonts.xml
 * -------------------------------------------------------------------------------------------------------------------------------------------------------------------
-* 28          9         Typeface.sSystemFallbackMap --> FontFamily.mNativePtr
-*                    OR Typeface.sSystemFontMap --> Typeface.native_instance
-*                    OR /system/etc/fonts.xml
-* 29          10        android.graphics.fonts     SystemFonts.getAvailableFonts() --> Font.getBuffer()  *** very very slow ***
-*                    OR Typeface.sSystemFontMap --> Typeface.native_instance
-*                    OR /system/etc/fonts.xml + /product/etc/fonts_customization.xml
-* 30          11        android.graphics.fonts     SystemFonts.getAvailableFonts() --> Font.getBuffer() *** very very slow ***
-*                    OR Typeface.sSystemFontMap --> Typeface.native_instance
-*                    OR /system/etc/fonts.xml + /product/etc/fonts_customization.xml
+* 24          7.0       java         Typeface.sSystemFontMap --> Typeface.native_instance
+*                                 OR FontListParser.parse --> FontListParser.Config --> FontListParser.Family --> FontListParser.Font.fontName
+*                                 OR /system/etc/fonts.xml
+* 25          7.1       java         Typeface.sSystemFontMap --> Typeface.native_instance
+*                                 OR FontListParser.parse --> FontListParser.Config --> FontListParser.Family --> FontListParser.Font.fontName
+*                                 OR /system/etc/fonts.xml
+* 26          8.0       java         Typeface.sSystemFontMap --> Typeface.native_instance
+*                                 OR FontListParser.parse --> FontConfig --> FontConfig.Family --> FontConfig.Font.getFontName()
+*                                 OR /system/etc/fonts.xml
+* 27          8.1       java         Typeface.sSystemFontMap --> Typeface.native_instance
+*                                 OR FontListParser.parse --> FontConfig --> FontConfig.Family --> FontConfig.Font.getFontName()
+*                                 OR /system/etc/fonts.xml
+* -------------------------------------------------------------------------------------------------------------------------------------------------------------------
+* 28          9       java           Typeface.sSystemFallbackMap --> FontFamily.mNativePtr
+*                                 OR Typeface.sSystemFontMap --> Typeface.native_instance
+*                                 OR /system/etc/fonts.xml
+* -------------------------------------------------------------------------------------------------------------------------------------------------------------------
+* 29          10       java          android.graphics.fonts --> SystemFonts.getAvailableFonts() --> Font.getBuffer()  *** very very slow ***
+*                                 OR Typeface.sSystemFontMap --> Typeface.native_instance
+*                                 OR /system/etc/fonts.xml + /product/etc/fonts_customization.xml
+* 30          11       java          android.graphics.fonts --> SystemFonts.getAvailableFonts() --> Font.getBuffer() *** very very slow ***
+*                                 OR Typeface.sSystemFontMap --> Typeface.native_instance
+*                                 OR /system/etc/fonts.xml + /product/etc/fonts_customization.xml
 * ===================================================================================================================================================================
 */
 
@@ -307,6 +312,28 @@ static void get_fontnames_from_java(JNIEnv* __env, const std::unordered_map<std:
 #endif
 
 #if SPECIAL_MACHINE_ANDROID
+static void get_fontxml_for_oppo_from_java(JNIEnv* __env, std::unordered_map<std::string, std::string>& __xmlfiles)
+{
+    javaExceptionGuard exceptionGuard(__env);
+
+    jclass colortypeface_clazz = __env->FindClass("android/graphics/ColorTypefaceInjector")JAVA_CHECK_RETURN(colortypeface_clazz);
+
+    jfieldID fieldID = __env->GetStaticFieldID(colortypeface_clazz, "SECOND_FONT_CONFIG_FILE", "Ljava/lang/String;")JAVA_CHECK_RETURN(fieldID);
+
+    jstring field = static_cast<jstring>(__env->GetStaticObjectField(colortypeface_clazz, fieldID))JAVA_CHECK_RETURN(field);
+
+    const char* config_file = __env->GetStringUTFChars(field, 0)JAVA_CHECK_RETURN(config_file);
+
+    if (strlen(config_file) > 0)
+    {
+        ACCESS_XML(config_file, SYSTEM_FONTS, __xmlfiles);
+    }
+
+    __env->ReleaseStringUTFChars(field, config_file)JAVA_EXCEPTION_RETURN();
+}
+#endif
+
+#if SPECIAL_MACHINE_ANDROID
 static void get_fontxml_for_lge_from_java(JNIEnv* __env, std::unordered_map<std::string, std::string>& __fonts)
 {
     if (sdk_ver_ == __ANDROID_API_L__
@@ -387,11 +414,11 @@ static void get_fontxml_for_lge_from_java(JNIEnv* __env, std::unordered_map<std:
 #endif
 
 #if SPECIAL_MACHINE_ANDROID
-static void get_fontxml_for_motorola_from_java(JNIEnv* __env, std::unordered_map<std::string, std::string>& __fonts)
+static void get_fontxml_for_motorola_from_java(JNIEnv* __env, std::unordered_map<std::string, std::string>& __xmlfiles)
 {
     if (sdk_ver_ == __ANDROID_API_N__ || sdk_ver_ == __ANDROID_API_N_MR1__)
     {
-        ACCESS_XML(SYSTEM_ETC "fonts_base.xml", SYSTEM_FONTS, __fonts);
+        ACCESS_XML(SYSTEM_ETC "fonts_base.xml", SYSTEM_FONTS, __xmlfiles);
 
         std::string oem_dir;
 
@@ -421,9 +448,9 @@ static void get_fontxml_for_motorola_from_java(JNIEnv* __env, std::unordered_map
         get_fontxml();
 
         std::string xml_file = oem_dir.empty() ? SYSTEM_ETC "fonts_zawygi.xml" : oem_dir + "/etc/fonts_zawygi.xml";
-        ACCESS_XML(xml_file.c_str(), oem_dir.empty() ? SYSTEM_FONTS : oem_dir + "/fonts/", __fonts);
+        ACCESS_XML(xml_file.c_str(), oem_dir.empty() ? SYSTEM_FONTS : oem_dir + "/fonts/", __xmlfiles);
         xml_file = oem_dir.empty() ? SYSTEM_ETC "fonts_myanmar.xml" : oem_dir + "/etc/fonts_myanmar.xml";
-        ACCESS_XML(xml_file.c_str(), oem_dir.empty() ? SYSTEM_FONTS : oem_dir + "/fonts/", __fonts);
+        ACCESS_XML(xml_file.c_str(), oem_dir.empty() ? SYSTEM_FONTS : oem_dir + "/fonts/", __xmlfiles);
     }
 }
 #endif

@@ -142,6 +142,8 @@ static void hooked_callback(bytehook_stub_t __task_stub, int __status_code, cons
 
 static int FT_New_Size_proxy(void* __oldface, void** __asize)
 {
+    BYTEHOOK_STACK_SCOPE();
+
     void** extensions_ptr = GET_OFFSET_PTR(__oldface, FT_FACE_EXTERNSIONS_OFFSET, void**);
 
     if (*extensions_ptr == nullptr)
@@ -209,7 +211,6 @@ static int FT_New_Size_proxy(void* __oldface, void** __asize)
         FT_FACE_SET_EXTENSIONS(__oldface);
     }
 
-    BYTEHOOK_STACK_SCOPE();
     return BYTEHOOK_CALL_PREV(FT_New_Size_proxy, __oldface, __asize);
 }
 
@@ -217,6 +218,8 @@ static int FT_New_Size_proxy(void* __oldface, void** __asize)
 
 static int FT_Open_Face_proxy(void* __library, const void* __args, int __face_index, void** __aface)
 {
+    BYTEHOOK_STACK_SCOPE();
+
     unsigned int flags = GET_OFFSET_DATA(__args, 0, unsigned int*);
 
     if (flags & FT_OPEN_MEMORY) // (flags == FT_OPEN_MEMORY)
@@ -232,7 +235,6 @@ static int FT_Open_Face_proxy(void* __library, const void* __args, int __face_in
         }
     }
 
-    BYTEHOOK_STACK_SCOPE();
     int ret = BYTEHOOK_CALL_PREV(FT_Open_Face_proxy, __library, __args, __face_index, __aface);
 
     if (ret == 0)
@@ -336,6 +338,8 @@ static void hb_font_relpace_face(void* __font)
 
 static void* hb_blob_create_proxy(const char* __data, unsigned int __length, int __mode, void* __user_data, hb_destroy_func_t __destroy)
 {
+    BYTEHOOK_STACK_SCOPE();
+
     const char* new_base = find_self_maps(__data, __length);
 
     if (new_base != nullptr)
@@ -343,7 +347,6 @@ static void* hb_blob_create_proxy(const char* __data, unsigned int __length, int
         __data = new_base;
     }
 
-    BYTEHOOK_STACK_SCOPE();
     void* ret = BYTEHOOK_CALL_PREV(hb_blob_create_proxy, __data, __length, __mode, __user_data, __destroy);
 
     if (ret != nullptr)
@@ -356,9 +359,10 @@ static void* hb_blob_create_proxy(const char* __data, unsigned int __length, int
 
 static void* hb_font_reference_proxy(void* __font)
 {
+    BYTEHOOK_STACK_SCOPE();
+
     hb_font_relpace_face(__font);
 
-    BYTEHOOK_STACK_SCOPE();
     return BYTEHOOK_CALL_PREV(hb_font_reference_proxy, __font);
 }
 
@@ -391,11 +395,10 @@ static bool check_blob_data_offset()
 
 #define MMAP(proxy, ret, __addr, __size, __prot, __flags, __fd, __offset) \
     std::set<void*> addrs; \
-    BYTEHOOK_STACK_SCOPE(); \
     while (1) \
     { \
         ret = BYTEHOOK_CALL_PREV(proxy, __addr, __size, __prot, __flags, __fd, __offset); \
-        LOG(#proxy " ret:%p fd:%d", ret, __fd); \
+        LOG(#proxy " ret:%p size:%zu, fd:%d", ret, __size, __fd); \
         if (ret == nullptr || __fd == -1) \
         { \
             break; \
@@ -409,9 +412,9 @@ static bool check_blob_data_offset()
             break; \
         } \
         LOG(#proxy " readlink file:%s", file); \
-        if (::strstr(file, ".ttf") == nullptr \
-            || ::strstr(file, ".otf") == nullptr \
-            || ::strstr(file, ".ttc") == nullptr) \
+        if (::strcasestr(file, ".ttf") == nullptr \
+            || ::strcasestr(file, ".otf") == nullptr \
+            || ::strcasestr(file, ".ttc") == nullptr) \
         { \
             break; \
         } \
@@ -424,7 +427,7 @@ static bool check_blob_data_offset()
         { \
             break; \
         } \
-        if (mapIt->second.pathname == file) \
+        if (!munmap_all_for_L_and_M && mapIt->second.pathname == file) \
         { \
             break; \
         } \
@@ -438,29 +441,42 @@ static bool check_blob_data_offset()
 
 static void* mmap_proxy(void* __addr, size_t __size, int __prot, int __flags, int __fd, off_t __offset)
 {
+    BYTEHOOK_STACK_SCOPE();
+
     void* ret = nullptr;
     MMAP(mmap_proxy, ret, __addr, __size, __prot, __flags, __fd, __offset);
-
+    LOG("mmap_proxy ret:%p", ret);
     return ret;
 }
 
 static void* mmap64_proxy(void* __addr, size_t __size, int __prot, int __flags, int __fd, off64_t __offset)
 {
+    BYTEHOOK_STACK_SCOPE();
+
     void* ret = nullptr;
     MMAP(mmap64_proxy, ret, __addr, __size, __prot, __flags, __fd, __offset);
-
+    LOG("mmap_proxy ret:%p", ret);
     return ret;
 }
 
-#if DEBUGGABLE
 int munmap_proxy(void* __addr, size_t __len)
 {
+    BYTEHOOK_STACK_SCOPE();
+
     LOG("munmap_proxy addr:%p size:%zu", __addr, __len);
 
-    BYTEHOOK_STACK_SCOPE();
+    if (munmap_all_for_L_and_M)
+    {
+        auto&& mapIt = fontsMaps_.find(reinterpret_cast<uintptr_t>(__addr));
+        if (mapIt != fontsMaps_.end() && mapIt->second.file_size == __len)
+        {
+            LOG("munmap_proxy addr:%p size:%zu in fontsMaps_ WARNNING!!!", __addr, __len);
+            return 0;
+        }
+    }
+
     return BYTEHOOK_CALL_PREV(munmap_proxy, __addr, __len);
 }
-#endif
 
 #define CHECK_BLOB_DATA_OFFSET() \
     if (!check_blob_data_offset()) \

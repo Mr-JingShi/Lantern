@@ -6,10 +6,10 @@
 
 #include <string>
 
-#define ACCESS_XML(xml, prefix, fonts) \
+#define ACCESS_XML(xml, prefix, xmlfiles) \
     if (access(xml, F_OK) == 0) \
     { \
-        fonts.insert({xml, prefix}); \
+        xmlfiles.insert({xml, prefix}); \
     } \
 
 #define SYSTEM_ETC "/system/etc/"
@@ -19,6 +19,7 @@
 
 #define DEBUGGABLE 0
 #define SPECIAL_MACHINE_ANDROID 1
+#define MUNMAP_ALL_IN_L_AND_M 1
 
 #define TEST_EXPRESSION_BEGIN(left, mid, right) \
     if (left mid right) \
@@ -74,3 +75,5 @@
 static int sdk_ver_ = 0;
 
 static std::string brand_;
+
+static bool munmap_all_for_L_and_M = false;

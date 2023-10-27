@@ -132,22 +132,74 @@ newface->face_flags:0x0b39
 SONY D6503 Android 6.0.1 出现隐藏字体
 
 /system/fonts/.SST-CondensedBd.ttf
+
 /system/fonts/.SST-Condensed.ttf
+
 /system/fonts/.SST-HeavyItalic.ttf
+
 /system/fonts/.SST-Heavy.ttf
+
 /system/fonts/.SST-MediumItalic.ttf
+
 /system/fonts/.SST-Medium.ttf
+
 /system/fonts/.SSTVietnamese-Bold.ttf
+
 /system/fonts/.SSTVietnamese-Roman.ttf
+
 /system/fonts/.SST-LightItalic.ttf
+
 /system/fonts/.SST-Light.ttf
+
 /system/fonts/.SST-UltraLightItalic.ttf
+
 /system/fonts/.SST-UltraLight.ttf
 
 ****************************************************************************************************
 
 xml里的字体库是软连接时，maps里映射的是实体文件，因此必须找到实体文件才行
+
 如 SAMSUNG SM-G965F Android 8.0.0
+
 SECRobotoLight-Bold.ttf -> Roboto-Medium.ttf
+
+****************************************************************************************************
+
+HUAWEI HONOR KIW-AL10  Android 6.0
+
+在执行 SkTypeface::openStream 时会 munmap 旧的 DroidSansChinese.ttf ，然后 mmap 新的 DroidSansChinese.ttf
+不执行lantern的任何操作，KIW-AL10机型额会进行上述替换操作。
+
+使用默认 DroidSansChinese.ttf 时
+
+e7bfe000-e84b6000 r--p 00000000 b3:18 1895 /system/fonts/DroidSansChinese.ttf
+
+ea54e000-eae06000 r--p 00000000 b3:18 1895 /system/fonts/DroidSansChinese.ttf
+
+munmap_proxy addr:0xe7bfe000 size:9139596
+
+mmap_proxy ret:0xe7bfe000 size:9139596, fd:28
+
+mmap_proxy readlink fd:/proc/self/fd/28
+
+mmap_proxy readlink file:/system/fonts/DroidSansChinese.ttf
+
+mmap_proxy ret:0xe7bfe000
+
+使用自定义 DroidSansChinese.ttf 时
+
+e7bfe000-e84b6000 r--p 00000000 b3:18 1895 /system/fonts/DroidSansChinese.ttf
+
+ea54e000-eae06000 r--p 00000000 b3:18 1895 /system/fonts/DroidSansChinese.ttf
+
+munmap_proxy addr:0xe7bfe000 size:9139596
+
+mmap_proxy ret:0xe7fb0000 size:5264484, fd:28
+
+mmap_proxy readlink fd:/proc/self/fd/28
+
+mmap_proxy readlink file:/data/themes/0/fonts/DroidSansChinese.ttf
+
+mmap_proxy ret:0xe7fb0000
 
 ****************************************************************************************************

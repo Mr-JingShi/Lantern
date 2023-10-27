@@ -18,68 +18,62 @@
 
 static void munmap_fonts_maps(JNIEnv* __env, const std::unordered_map<void*, size_t>& __fontData, const std::unordered_set<size_t>& __black_lists)
 {
+    if (!munmap_all_for_L_and_M)
+    {
+        LOG("fontData size:%zu", __fontData.size());
 #if 0
 
-    if (0)
+        if (0)
 #else
-    if (!__fontData.empty())
+        if (!__fontData.empty())
 #endif
-    {
-        for (auto&& iter = fontsMaps_.begin(); iter != fontsMaps_.end(); /* ++iter */)
         {
-            if (__fontData.find(reinterpret_cast<void*>(iter->first)) == __fontData.end())
+            for (auto&& iter = fontsMaps_.begin(); iter != fontsMaps_.end(); /* ++iter */)
             {
-                LOG("munmap_fonts_maps 0x%x not in fontData", iter->first);
-                iter = fontsMaps_.erase(iter);
-                continue;
-            }
+                if (__fontData.find(reinterpret_cast<void*>(iter->first)) == __fontData.end())
+                {
+                    LOG("munmap_fonts_maps %x not in fontData", iter->first);
+                    iter = fontsMaps_.erase(iter);
+                    continue;
+                }
 
-            ++iter;
+                ++iter;
+            }
         }
-    }
-    else
-    {
-        char device[92] = {0};
-
-        if (__system_property_get("ro.product.model", device) <= 0)
+        else
         {
-            LOG("get ro.product.brand falied");
-            return;
-        }
+            std::set<std::string> names;
 
-        bool original_android = true;
+            get_fontnames_from_xml(__env, names);
+            LOG("names size %zu", names.size());
 
-        std::set<std::string> names;
+            std::unordered_map<std::string, uintptr_t> fontname2addr;
 
-        get_fontnames_from_xml(__env, names);
-        LOG("names size %zu", names.size());
-
-        std::unordered_map<std::string, uintptr_t> fontname2addr;
-
-        for (auto iter = fontsMaps_.begin(); iter != fontsMaps_.end(); /* ++iter */)
-        {
-            if (names.count(iter->second.pathname) == 0)
+            for (auto iter = fontsMaps_.begin(); iter != fontsMaps_.end(); /* ++iter */)
             {
-                LOG("munmap_fonts_maps %s not in xml", iter->second.pathname.c_str());
-                iter = fontsMaps_.erase(iter);
-                continue;
-            }
+                if (names.count(iter->second.pathname) == 0)
+                {
+                    LOG("munmap_fonts_maps %s not in xml", iter->second.pathname.c_str());
+                    iter = fontsMaps_.erase(iter);
+                    continue;
+                }
 
-            auto&& fontname2addrIter = fontname2addr.find(iter->second.pathname);
+                auto&& fontname2addrIter = fontname2addr.find(iter->second.pathname);
 
-            if (fontname2addrIter != fontname2addr.end())
-            {
-                LOG("munmap_fonts_maps found multi font");
-                fontsMaps_.erase(fontname2addrIter->second);
-                iter = fontsMaps_.erase(iter);
-                continue;
-            }
-            else
-            {
-                fontname2addr.insert({iter->second.pathname, iter->first});
-            }
+                if (fontname2addrIter != fontname2addr.end())
+                {
+                    LOG("munmap_fonts_maps found multi font %s", iter->second.pathname.c_str());
+                    fontsMaps_.erase(fontname2addrIter->second);
+                    iter = fontsMaps_.erase(iter);
+                    continue;
+                }
+                else
+                {
+                    fontname2addr.insert({iter->second.pathname, iter->first});
+                }
 
-            ++iter;
+                ++iter;
+            }
         }
     }
 
@@ -442,14 +436,16 @@ bool AndroidFontsExt_Install(JNIEnv* __env, jint __sdk_ver, jintArray __black_li
     brand_ = brand;
     LOG("brand:%s", brand);
 
-    found_ttf_maps([&](uintptr_t __start, uintptr_t __end, char __perms[4], const char* __path) -> bool
-    {
-        fontsMaps_.insert({__start, {__end - __start, __perms, __path}});
-        return false;
-    });
-
     std::unordered_map<void*, size_t> fontData;
 
+#if MUNMAP_ALL_IN_L_AND_M
+
+    if (sdk_ver_ >= __ANDROID_API_L__ && sdk_ver_ <= __ANDROID_API_M__)
+    {
+        munmap_all_for_L_and_M = true;
+    }
+
+#endif
 
 #if DEBUGGABLE
 
@@ -458,56 +454,73 @@ bool AndroidFontsExt_Install(JNIEnv* __env, jint __sdk_ver, jintArray __black_li
         get_font_data_from_java(__env, fontData);
     }
 
-    if (fontData.empty())
+    if (!munmap_all_in_L_and_M && fontData.empty())
     {
         if (!get_font_data(__env, fontData))
         {
             LOG("get_font_data failed!");
         }
-
     }
 
 #else
 
-    if (!signal_register(SIGSEGV))
+    if (!munmap_all_for_L_and_M)
     {
-        LOG("signal handler reg failed.");
-        return false;
-    }
+        if (!signal_register(SIGSEGV))
+        {
+            LOG("signal handler reg failed.");
+            return false;
+        }
 
-    signal_flag_ = 1;
+        signal_flag_ = 1;
 
-    if (0 == sigsetjmp(time_machine_, 1))
-    {
-        if (!get_font_data(__env, fontData))
+        if (0 == sigsetjmp(time_machine_, 1))
+        {
+            if (!get_font_data(__env, fontData))
+            {
+                std::unordered_map<void*, size_t> ().swap(fontData);
+                LOG("get_font_data failed!");
+            }
+        }
+        else
         {
             std::unordered_map<void*, size_t> ().swap(fontData);
-            LOG("get_font_data failed!");
+            LOG("native init failed, found exception signal.");
         }
-    }
-    else
-    {
-        std::unordered_map<void*, size_t> ().swap(fontData);
-        LOG("native init failed, found exception signal.");
-    }
 
-    signal_flag_ = 0;
+        signal_flag_ = 0;
 
-    if (!signal_unregister(SIGSEGV))
-    {
-        LOG("signal handler unreg failed.");
-        return false;
+        if (!signal_unregister(SIGSEGV))
+        {
+            LOG("signal handler unreg failed.");
+            return false;
+        }
     }
 
 #endif
 
-    LOG("fontData size:%zu", fontData.size());
+    // HUAWEI HONOR KIW-AL10  Android 6.0
+    // 在执行SkTypeface::openStream时会munmap旧的DroidSansChinese.ttf，然后mmap新的DroidSansChinese.ttf
+    // 不执行lantern的任何操作，KIW-AL10机型额会进行上述替换操作。
+    // 因此found_ttf_maps要放到get_font_data之后
+    found_ttf_maps([&](uintptr_t __start, uintptr_t __end, char __perms[4], const char* __path) -> bool
+    {
+        fontsMaps_.insert({__start, {__end - __start, __perms, __path}});
+        return false;
+    });
 
     bytehook_init(BYTEHOOK_MODE_AUTOMATIC, false);
 
     if (sdk_ver_ >= __ANDROID_API_L__ && sdk_ver_ <= __ANDROID_API_M__)
     {
         HOOK_PARTIAL(libskia_filter, mmap);
+#if !DEBUGGABLE
+
+        if (munmap_all_for_L_and_M)
+#endif
+        {
+            HOOK_PARTIAL(libskia_filter, munmap);
+        }
     }
     else
     {
@@ -593,5 +606,6 @@ bool AndroidFontsExt_Install(JNIEnv* __env, jint __sdk_ver, jintArray __black_li
 
     munmap_fonts_maps(__env, fontData, blacklist);
 
+    LOG("AndroidFontsExt_Install end");
     return true;
 }

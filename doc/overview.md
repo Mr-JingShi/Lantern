@@ -29,16 +29,19 @@ Android 10 ~ 11
 ## 字体库加载
 
 Android 5.0 ~ 6.0 字体库是在 Native 层 libskia.so 中通过mmap建立ttf-memory的映射，
- */fonst.xml 同一个 ttf 存在多份时， ttf-memory 映射关系就存在多份。
+ fonts.xml 同一个 ttf 存在多份时， ttf-memory 映射关系就存在多份。
 如，LG-H422 Android 5.0.1机型：
 
 adb44000-ae3c4000 r--p 00000000 b3:09 1042       /system/fonts/NotoColorEmoji.ttf
 
 ae3c4000-aec44000 r--p 00000000 b3:09 1042       /system/fonts/NotoColorEmoji.ttf
 
-Android 6.0 ~ 11 字体库是在 Java 层通过 fileChannel.map 建立ttf-memory的映射，
- */fonst.xml 同一个 ttf 存在多份时，因为有 HashMap<String, ByteBuffer> bufferCache 缓存的原因，
- ttf-memory 映射关系只映射一份。 在随后的处理中 ByteBuffer 被提升成 Global ，在 Global 减到0时，交给了 GC 。
+Android 7.0 ~ 11 字体库是在 Java 层通过 fileChannel.map 建立ttf-memory的映射，
+ fonts.xml 同一个 ttf 存在多份时，因为有 HashMap<String, ByteBuffer> bufferCache 缓存的原因，
+ ttf-memory 映射关系只映射一份（在存在软连接的情况下，java读到的是软连接名称，而 maps 映射的是实体名称，
+fonts.xml 中同时配置了软连接和实体，可能会出现多份，多个软连接指向同一个实体文件，fonts.xml 中同时配置了
+指向同一个实体文件的多个软连接时，可能会出现多份）。 在随后的处理中 ByteBuffer 被提升成 Global ，
+在 Global 减到0时，交给了 GC 。
 ```c++
     jobject fontRef = MakeGlobalRefOrDie(env, font);
 ```
@@ -75,7 +78,7 @@ Android 12 ～ x 似乎 Google 已经意识到该把手术刀刀向字体库了�
 （字体库生命周期大于App生命周期）。 像部分 VIVO 、 OPPO 机型App启动后 GC 会回收的字体库成为非常驻字体库，
 经过大量测试发现：
 
-（1）谷歌：（完全按照原生 Android 架构）加载 */fonts.xml 内有效 ttf 。
+（1）谷歌：（完全按照原生 Android 架构）加载 fonts.xml 内有效 ttf 。
 
 （2）小米、三星、魅族等修改默认字体库和支持系统级自定义字体库的机型：加载 */fonst.xml 内有效 ttf 和 几个有效系统级自定义字体库。
 

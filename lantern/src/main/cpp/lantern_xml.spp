@@ -38,6 +38,14 @@ static void check_symbolic(std::string& __name)
                         auto pos = __name.rfind("/");
                         __name =  __name.substr(0, pos + 1) + linkname;
                     }
+
+                    /* OPPO PBCM30 Android 10 /system_ext/etc/fonts.xml
+                       /system/fonts/ColorFont-Thin.ttf和/data/system/font/ColorOSUI-Thin.ttf 都是软连接
+                       /data/system/font/ColorOS-Regular.ttf 才是实体文件
+                       /system/fonts/ColorFont-Thin.ttf--/data/system/font/ColorOSUI-Thin.ttf
+                       /data/system/font/ColorOSUI-Thin.ttf--/data/system/font/ColorOS-Regular.ttf
+                    */
+                    check_symbolic(__name);
                 }
             }
         }
@@ -46,13 +54,13 @@ static void check_symbolic(std::string& __name)
 
 static void get_fontnames_from_xml(JNIEnv* __env, std::set<std::string>& __names)
 {
-    std::unordered_map<std::string, std::string> fonts;
+    std::unordered_map<std::string, std::string> xmlfiles;
 
 #if SPECIAL_MACHINE_ANDROID
 
     if (::strcasestr(brand_.c_str(), "Meizu"))
     {
-        get_fontxml_for_meizu_from_java(__env, fonts);
+        get_fontxml_for_meizu_from_java(__env, xmlfiles);
     }
     else if (::strcasestr(brand_.c_str(), "OnePlus"))
     {
@@ -142,27 +150,52 @@ static void get_fontnames_from_xml(JNIEnv* __env, std::set<std::string>& __names
         */
         if (sdk_ver_ == __ANDROID_API_N_MR1__)
         {
-            ACCESS_XML(SYSTEM_ETC "fonts.xml", SYSTEM_FONTS, fonts);
-            ACCESS_XML(SYSTEM_ETC "fonts_slate.xml", SYSTEM_FONTS, fonts);
+            ACCESS_XML(SYSTEM_ETC "fonts.xml", SYSTEM_FONTS, xmlfiles);
+            ACCESS_XML(SYSTEM_ETC "fonts_slate.xml", SYSTEM_FONTS, xmlfiles);
         }
     }
     else if (::strcasestr(brand_.c_str(), "motorola"))
     {
-        get_fontxml_for_motorola_from_java(__env, fonts);
+        get_fontxml_for_motorola_from_java(__env, xmlfiles);
     }
     else if (::strcasestr(brand_.c_str(), "OPPO"))
     {
         if (sdk_ver_ == __ANDROID_API_R__)
         {
-            ACCESS_XML("/system_ext/etc/fonts_base.xml", SYSTEM_FONTS, fonts);
+            /*
+             OPPO Android 10
+             default String getSystemFontConfig() {
+                return "/system_ext/etc/fonts_base.xml";
+             }
+             */
+            ACCESS_XML("/system_ext/etc/fonts_base.xml", SYSTEM_FONTS, xmlfiles);
+        }
+        else if (sdk_ver_ == __ANDROID_API_Q__)
+        {
+            /*
+             OPPO Android 10
+             static {
+                ArrayMap<String, FontFamily[]> systemFallbackMap = new ArrayMap<>();
+                ArrayList<Font> availableFonts = new ArrayList<>();
+                FontCustomizationParser.Result oemCustomization = readFontCustomization("/product/etc/fonts_customization.xml", "/product/fonts/");
+                sAliases = buildSystemFallback(ColorFrameworkFactory.getInstance().getColorFontManager().getSystemFontConfig(), "/system/fonts/", oemCustomization, systemFallbackMap, availableFonts);
+                sSystemFallbackMap = Collections.unmodifiableMap(systemFallbackMap);
+                sAvailableFonts = Collections.unmodifiableList(availableFonts);
+             }
+
+             default String getSystemFontConfig() {
+                return ColorTypefaceInjector.SECOND_FONT_CONFIG_FILE;
+             }
+            */
+            get_fontxml_for_oppo_from_java(__env, xmlfiles);
         }
     }
     else if (::strcasestr(brand_.c_str(), "lge") || ::strcasestr(brand_.c_str(), "MetroPCS"))
     {
-        get_fontxml_for_lge_from_java(__env, fonts);
+        get_fontxml_for_lge_from_java(__env, xmlfiles);
     }
 
-    if (fonts.empty() && sdk_ver_ <= __ANDROID_API_O_MR1__)
+    if (xmlfiles.empty() && sdk_ver_ <= __ANDROID_API_O_MR1__)
 #else
     if (sdk_ver_ <= __ANDROID_API_O_MR1__)
 #endif
@@ -173,7 +206,7 @@ static void get_fontnames_from_xml(JNIEnv* __env, std::set<std::string>& __names
 #if DEBUGGABLE
         get_fontnames_from_java(__env, fontsconfigFields, __names, check_symbolic);
 #else
-        get_xmlnames_from_java(__env, fontsconfigFields, fonts);
+        get_xmlnames_from_java(__env, fontsconfigFields, xmlfiles);
 #endif
     }
 
@@ -181,20 +214,22 @@ static void get_fontnames_from_xml(JNIEnv* __env, std::set<std::string>& __names
 
     if (fonts.empty() && __names.empty())
 #else
-    if (fonts.empty())
+    if (xmlfiles.empty())
 #endif
     {
-        ACCESS_XML(SYSTEM_ETC "fonts.xml", SYSTEM_FONTS, fonts);
+        ACCESS_XML(SYSTEM_ETC "fonts.xml", SYSTEM_FONTS, xmlfiles);
     }
 
     // product
     if (sdk_ver_ == __ANDROID_API_Q__ || sdk_ver_ == __ANDROID_API_R__)
     {
-        ACCESS_XML(PRODUCT_ETC "fonts_customization.xml", PRODUCT_FONTS, fonts);
+        ACCESS_XML(PRODUCT_ETC "fonts_customization.xml", PRODUCT_FONTS, xmlfiles);
     }
 
-    for (auto&& iter : fonts)
+    for (auto&& iter : xmlfiles)
     {
+        LOG("xmlfile:%s", iter.first.c_str());
+
         std::ifstream ifs(iter.first);
         std::string fontsxml((std::istreambuf_iterator<char>(ifs)),
                              std::istreambuf_iterator<char>());

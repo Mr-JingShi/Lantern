@@ -23,7 +23,7 @@
             <Button style="@style/Theme.Button"
                 android:id="@+id/test_gc"
                 android:onClick="on_test_gc_clicked"
-                android:text="触发GC" />
+                android:text="触发GC（Android 7.0 ~ 11）" />
 
             <Button style="@style/Theme.Button"
                 android:id="@+id/test_ja"

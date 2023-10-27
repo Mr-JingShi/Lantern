@@ -223,7 +223,7 @@ static const char* find_self_maps(const char* __memory_base, size_t __memory_siz
             break;
         }
 
-        if (iter->second.pathname == mapIt->second.pathname)
+        if (!munmap_all_for_L_and_M && iter->second.pathname == mapIt->second.pathname)
         {
             break;
         }
@@ -253,28 +253,13 @@ static const char* find_self_maps(const char* __memory_base, size_t __memory_siz
 
 bool check_maps(const void* __memory_data, size_t __memory_size, std::unordered_map<void*, size_t>& __fontData)
 {
-    uintptr_t memory_data = reinterpret_cast<uintptr_t>(__memory_data);
-    auto&& fontMapsIter = fontsMaps_.find(memory_data);
+    auto&& iter = __fontData.find(const_cast<void*>(__memory_data));
 
-    if (fontMapsIter == fontsMaps_.end())
+    if (iter != __fontData.end())
     {
-        LOG("memory_data:%p memory_size:%zu not in fontsMaps_, ERROR!!!", __memory_data, __memory_size);
-        return false;
-    }
-
-    if (fontMapsIter->second.mmap_size < __memory_size)
-    {
-        LOG("fontMapsIter->second.mmap_size:%zu < memory_size:%zu, ERROR!!!", fontMapsIter->second.mmap_size, __memory_size);
-        return false;
-    }
-
-    auto&& fontDataiter = __fontData.find(const_cast<void*>(__memory_data));
-
-    if (fontDataiter != __fontData.end())
-    {
-        if (fontDataiter->second != __memory_size)
+        if (iter->second != __memory_size)
         {
-            LOG("fontDataiter->second:%zu != memory_size:%zu, ERROR!!!", fontDataiter->second, __memory_size);
+            LOG("iter->second:%zu != memory_size:%zu, ERROR!!!", iter->second, __memory_size);
             return false;
         }
     }
