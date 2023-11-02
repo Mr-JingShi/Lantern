@@ -10,7 +10,7 @@
     if (access(xml, F_OK) == 0) \
     { \
         xmlfiles.insert({xml, prefix}); \
-    } \
+    }
 
 #define SYSTEM_ETC "/system/etc/"
 #define PRODUCT_ETC "/system/product/etc/"

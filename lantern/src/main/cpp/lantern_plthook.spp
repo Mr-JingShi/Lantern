@@ -10,11 +10,11 @@
 
 /*
 * ===================================================================================================================================================================
-* API-LEVEL   VERSION   FT_Open_Face   FT_New_Size   hb_blob_create   hb_font_reference   hb_font_get_face   mmap         mmap64
+* API-LEVEL   VERSION   FT_Open_Face   FT_New_Size   hb_blob_create   hb_font_reference   hb_font_get_face   mmap         mmap64            munmap
 * ===================================================================================================================================================================
-* 21          5.0       libskia.so     libskia.so                                                            libskia.so
-* 22          5.1       libskia.so     libskia.so                                                            libskia.so
-* 23          6.0       libskia.so     libskia.so                                                            libskia.so
+* 21          5.0       libskia.so     libskia.so                                                            libskia.so                     libskia.so
+* 22          5.1       libskia.so     libskia.so                                                            libskia.so                     libskia.so
+* 23          6.0       libskia.so     libskia.so                                                            libskia.so                     libskia.so
 * -------------------------------------------------------------------------------------------------------------------------------------------------------------------
 * 24          7.0       libskia.so     libskia.so    libminikin.so    libminikin.so                                       libopenjdk.so
 * 25          7.1       libskia.so     libskia.so    libminikin.so    libminikin.so                                       libopenjdk.so
@@ -199,10 +199,13 @@ static int FT_New_Size_proxy(void* __oldface, void** __asize)
             size_t ttface_offset = face_size - FT_FACE_TTFACE_OFFSET;
             assert(ttface_offset > 0);
             void* ttface = malloc(ttface_offset);
-            memcpy(ttface, GET_OFFSET_PTR(__oldface, FT_FACE_TTFACE_OFFSET, void*), ttface_offset);
-            memcpy(GET_OFFSET_PTR(__oldface, FT_FACE_TTFACE_OFFSET, void*), GET_OFFSET_PTR(newface, FT_FACE_TTFACE_OFFSET, void*), ttface_offset);
-            memcpy(GET_OFFSET_PTR(newface, FT_FACE_TTFACE_OFFSET, void*), ttface, ttface_offset);
-            free(ttface);
+            if (ttface != nullptr)
+            {
+                memcpy(ttface, GET_OFFSET_PTR(__oldface, FT_FACE_TTFACE_OFFSET, void*), ttface_offset);
+                memcpy(GET_OFFSET_PTR(__oldface, FT_FACE_TTFACE_OFFSET, void*), GET_OFFSET_PTR(newface, FT_FACE_TTFACE_OFFSET, void*), ttface_offset);
+                memcpy(GET_OFFSET_PTR(newface, FT_FACE_TTFACE_OFFSET, void*), ttface, ttface_offset);
+                free(ttface);
+            }
 
             FT_Done_Face_(newface);
         }
@@ -220,7 +223,7 @@ static int FT_Open_Face_proxy(void* __library, const void* __args, int __face_in
 {
     BYTEHOOK_STACK_SCOPE();
 
-    unsigned int flags = GET_OFFSET_DATA(__args, 0, unsigned int*);
+    unsigned int flags = GET_OFFSET_DATA(__args, 0x00, unsigned int*);
 
     if (flags & FT_OPEN_MEMORY) // (flags == FT_OPEN_MEMORY)
     {
@@ -368,9 +371,10 @@ static void* hb_font_reference_proxy(void* __font)
 
 static void* hb_font_get_face_proxy(void* __parent)
 {
+    BYTEHOOK_STACK_SCOPE();
+
     hb_font_relpace_face(__parent);
 
-    BYTEHOOK_STACK_SCOPE();
     return BYTEHOOK_CALL_PREV(hb_font_get_face_proxy, __parent);
 }
 

@@ -12,7 +12,7 @@
 * ===================================================================================================================================================================
 * API-LEVEL   VERSION   MMAP-IN   SOLUTION
 * ===================================================================================================================================================================
-* 21          5.0       c++           munmap all in /proc/self/maps since mmap in native
+* 21          5.0       c++          munmap all in /proc/self/maps since mmap in native
 *                                 OR Typeface.sSystemFontMap --> Typeface.native_instance
 *                                 OR FontListParser.parse --> FontListParser.Config --> FontListParser.Family --> FontListParser.Font.fontName
 *                                 OR /system/etc/fonts.xml
@@ -38,27 +38,18 @@
 *                                 OR FontListParser.parse --> FontConfig --> FontConfig.Family --> FontConfig.Font.getFontName()
 *                                 OR /system/etc/fonts.xml
 * -------------------------------------------------------------------------------------------------------------------------------------------------------------------
-* 28          9       java           Typeface.sSystemFallbackMap --> FontFamily.mNativePtr
+* 28          9         java         Typeface.sSystemFallbackMap --> FontFamily.mNativePtr
 *                                 OR Typeface.sSystemFontMap --> Typeface.native_instance
 *                                 OR /system/etc/fonts.xml
 * -------------------------------------------------------------------------------------------------------------------------------------------------------------------
-* 29          10       java          android.graphics.fonts --> SystemFonts.getAvailableFonts() --> Font.getBuffer()  *** very very slow ***
+* 29          10        java         android.graphics.fonts --> SystemFonts.getAvailableFonts() --> Font.getBuffer()  *** very very slow ***
 *                                 OR Typeface.sSystemFontMap --> Typeface.native_instance
 *                                 OR /system/etc/fonts.xml + /product/etc/fonts_customization.xml
-* 30          11       java          android.graphics.fonts --> SystemFonts.getAvailableFonts() --> Font.getBuffer() *** very very slow ***
+* 30          11        java         android.graphics.fonts --> SystemFonts.getAvailableFonts() --> Font.getBuffer() *** very very slow ***
 *                                 OR Typeface.sSystemFontMap --> Typeface.native_instance
 *                                 OR /system/etc/fonts.xml + /product/etc/fonts_customization.xml
 * ===================================================================================================================================================================
 */
-
-#define JAVA_EXCEPTION_CONTINUE() ; \
-    if (__env->ExceptionCheck()) \
-    { \
-        LOG("java exception."); \
-        __env->ExceptionDescribe(); \
-        __env->ExceptionClear(); \
-        continue; \
-    }
 
 #define JAVA_NULLPTR_CONTINUE(ptr) ; \
     if(ptr == nullptr) \
@@ -67,11 +58,16 @@
         continue; \
     }
 
-#define JAVA_CHECK_CONTINUE(ptr) \
-    JAVA_EXCEPTION_CONTINUE() \
+#define JAVA_CHECK_CONTINUE(ptr) ; \
     if(ptr == nullptr) \
     { \
-        LOG(#ptr " == nullptr."); \
+        LOG(#ptr " == nullptr.");  \
+        if (__env->ExceptionCheck()) \
+        { \
+            LOG("java exception."); \
+            __env->ExceptionDescribe(); \
+            __env->ExceptionClear(); \
+        } \
         continue; \
     }
 
@@ -83,9 +79,9 @@
     }
 
 #define JAVA_CHECK_RETURN(ptr) ; \
-    if (__env->ExceptionCheck() || ptr == nullptr) \
+    if (ptr == nullptr || __env->ExceptionCheck()) \
     { \
-        LOG("java exception or " #ptr " == nullptr."); \
+        LOG(#ptr " == nullptr or java exception." ); \
         return; \
     }
 
@@ -95,11 +91,6 @@ struct javaExceptionGuard
         : jniEnv(__env) { }
 
     ~javaExceptionGuard()
-    {
-        exception();
-    }
-
-    void exception()
     {
         if (jniEnv->ExceptionCheck())
         {
@@ -111,21 +102,61 @@ struct javaExceptionGuard
     JNIEnv* jniEnv;
 };
 
+template <typename T>
+struct ScopedLocalRef
+{
+    ScopedLocalRef(JNIEnv* __env, T __localRef)
+        : jniEnv(__env)
+        , localRef(__localRef) { }
+
+    ~ScopedLocalRef()
+    {
+        if (localRef != nullptr)
+        {
+            jniEnv->DeleteLocalRef(localRef);
+            localRef = nullptr;
+        }
+    }
+
+    T get() const
+    {
+        return localRef;
+    }
+
+    bool operator==(std::nullptr_t) const
+    {
+        return localRef == nullptr;
+    }
+
+    bool operator!=(std::nullptr_t) const
+    {
+        return localRef != nullptr;
+    }
+
+    JNIEnv* jniEnv;
+    T localRef;
+};
+
+template struct ScopedLocalRef<jclass>;
+template struct ScopedLocalRef<jobject>;
+template struct ScopedLocalRef<jobjectArray>;
+template struct ScopedLocalRef<jstring>;
+
 static void get_xmlnames_from_java(JNIEnv* __env, const std::unordered_map<std::string, std::string>& fields, std::unordered_map<std::string, std::string>& __fonts)
 {
     javaExceptionGuard exceptionGuard(__env);
 
-    jclass file_clazz = __env->FindClass("java/io/File")JAVA_CHECK_RETURN(file_clazz);
-    jclass typeface_clazz = __env->FindClass("android/graphics/Typeface")JAVA_CHECK_RETURN(typeface_clazz);
+    ScopedLocalRef<jclass> file_clazz(__env, __env->FindClass("java/io/File"))JAVA_CHECK_RETURN(file_clazz)
+    ScopedLocalRef<jclass> typeface_clazz(__env, __env->FindClass("android/graphics/Typeface"))JAVA_CHECK_RETURN(typeface_clazz)
 
-    jmethodID getAbsolutePath_methodID = __env->GetMethodID(file_clazz, "getAbsolutePath", "()Ljava/lang/String;")JAVA_CHECK_RETURN(getAbsolutePath_methodID);
-    jmethodID getSystemFontConfigLocation_methodID = __env->GetStaticMethodID(typeface_clazz, "getSystemFontConfigLocation", "()Ljava/io/File;")JAVA_CHECK_RETURN(getSystemFontConfigLocation_methodID);
+    jmethodID getAbsolutePath_methodID = __env->GetMethodID(file_clazz.get(), "getAbsolutePath", "()Ljava/lang/String;")JAVA_CHECK_RETURN(getAbsolutePath_methodID)
+    jmethodID getSystemFontConfigLocation_methodID = __env->GetStaticMethodID(typeface_clazz.get(), "getSystemFontConfigLocation", "()Ljava/io/File;")JAVA_CHECK_RETURN(getSystemFontConfigLocation_methodID)
 
-    jobject systemFontConfigLocation = __env->CallStaticObjectMethod(typeface_clazz, getSystemFontConfigLocation_methodID)JAVA_CHECK_RETURN(systemFontConfigLocation);
+    ScopedLocalRef<jobject> systemFontConfigLocation(__env, __env->CallStaticObjectMethod(typeface_clazz.get(), getSystemFontConfigLocation_methodID))JAVA_CHECK_RETURN(systemFontConfigLocation)
 
-    jstring path_string = static_cast<jstring>(__env->CallObjectMethod(systemFontConfigLocation, getAbsolutePath_methodID))JAVA_CHECK_RETURN(path_string);
+    ScopedLocalRef<jstring> path_string(__env, static_cast<jstring>(__env->CallObjectMethod(systemFontConfigLocation.get(), getAbsolutePath_methodID)))JAVA_CHECK_RETURN(path_string)
 
-    const char* path = __env->GetStringUTFChars(path_string, 0)JAVA_CHECK_RETURN(path);
+    const char* path = __env->GetStringUTFChars(path_string.get(), 0)JAVA_CHECK_RETURN(path)
 
     if (strlen(path) > 0)
     {
@@ -133,11 +164,11 @@ static void get_xmlnames_from_java(JNIEnv* __env, const std::unordered_map<std::
         {
             LOG("fields:%s sig:%s", iter.first.c_str(), iter.second.c_str());
 
-            jfieldID fieldID = __env->GetStaticFieldID(typeface_clazz, iter.first.c_str(), iter.second.c_str())JAVA_CHECK_RETURN(fieldID);
+            jfieldID fieldID = __env->GetStaticFieldID(typeface_clazz.get(), iter.first.c_str(), iter.second.c_str())JAVA_CHECK_RETURN(fieldID)
 
-            jstring xml_string = static_cast<jstring>(__env->GetStaticObjectField(typeface_clazz, fieldID))JAVA_CHECK_RETURN(xml_string);
+            ScopedLocalRef<jstring> xml_string(__env, static_cast<jstring>(__env->GetStaticObjectField(typeface_clazz.get(), fieldID)))JAVA_CHECK_RETURN(xml_string)
 
-            const char* xmlname = __env->GetStringUTFChars(xml_string, 0)JAVA_CHECK_RETURN(xmlname);
+            const char* xmlname = __env->GetStringUTFChars(xml_string.get(), 0)JAVA_CHECK_RETURN(xmlname)
 
             if (strlen(xmlname) > 0)
             {
@@ -150,14 +181,11 @@ static void get_xmlnames_from_java(JNIEnv* __env, const std::unordered_map<std::
                 __fonts.emplace( name, "/system/fonts/");
             }
 
-            __env->ReleaseStringUTFChars(xml_string, xmlname)JAVA_EXCEPTION_RETURN();
-
-            __env->DeleteLocalRef(xml_string)JAVA_EXCEPTION_RETURN();
+            __env->ReleaseStringUTFChars(xml_string.get(), xmlname);
         }
     }
 
-    __env->ReleaseStringUTFChars(path_string, path)JAVA_EXCEPTION_RETURN();
-
+    __env->ReleaseStringUTFChars(path_string.get(), path);
 }
 
 #if DEBUGGABLE
@@ -165,65 +193,65 @@ static void get_fontnames_from_java(JNIEnv* __env, const std::unordered_map<std:
 {
     javaExceptionGuard exceptionGuard(__env);
 
-    jclass file_clazz = __env->FindClass("java/io/File")JAVA_CHECK_RETURN(file_clazz);
-    jclass fileInputStream_clazz = __env->FindClass("java/io/FileInputStream")JAVA_CHECK_RETURN(fileInputStream_clazz);
-    jclass typeface_clazz = __env->FindClass("android/graphics/Typeface")JAVA_CHECK_RETURN(typeface_clazz);
-    jclass fontListParser_clazz = __env->FindClass("android/graphics/FontListParser")JAVA_CHECK_RETURN(fontListParser_clazz);
+    ScopedLocalRef<jclass> file_clazz(__env, __env->FindClass("java/io/File"))JAVA_CHECK_RETURN(file_clazz)
+    ScopedLocalRef<jclass> fileInputStream_clazz(__env, __env->FindClass("java/io/FileInputStream"))JAVA_CHECK_RETURN(fileInputStream_clazz)
+    ScopedLocalRef<jclass> typeface_clazz(__env, __env->FindClass("android/graphics/Typeface"))JAVA_CHECK_RETURN(typeface_clazz)
+    ScopedLocalRef<jclass> fontListParser_clazz(__env, __env->FindClass("android/graphics/FontListParser"))JAVA_CHECK_RETURN(fontListParser_clazz)
 
-    jmethodID getSystemFontConfigLocation_methodID = __env->GetStaticMethodID(typeface_clazz, "getSystemFontConfigLocation", "()Ljava/io/File;")JAVA_CHECK_RETURN(getSystemFontConfigLocation_methodID);
-    jmethodID file_methodID = __env->GetMethodID(file_clazz, "<init>", "(Ljava/io/File;Ljava/lang/String;)V")JAVA_CHECK_RETURN(file_methodID);
-    jmethodID fileInputStream_methodID = __env->GetMethodID(fileInputStream_clazz, "<init>", "(Ljava/io/File;)V")JAVA_CHECK_RETURN(fileInputStream_methodID);
+    jmethodID getSystemFontConfigLocation_methodID = __env->GetStaticMethodID(typeface_clazz.get(), "getSystemFontConfigLocation", "()Ljava/io/File;")JAVA_CHECK_RETURN(getSystemFontConfigLocation_methodID)
+    jmethodID file_methodID = __env->GetMethodID(file_clazz.get(), "<init>", "(Ljava/io/File;Ljava/lang/String;)V")JAVA_CHECK_RETURN(file_methodID)
+    jmethodID fileInputStream_methodID = __env->GetMethodID(fileInputStream_clazz.get(), "<init>", "(Ljava/io/File;)V")JAVA_CHECK_RETURN(fileInputStream_methodID)
 
-    jobject systemFontConfigLocation = __env->CallStaticObjectMethod(typeface_clazz, getSystemFontConfigLocation_methodID)JAVA_CHECK_RETURN(systemFontConfigLocation);
+    ScopedLocalRef<jobject> systemFontConfigLocation(__env, __env->CallStaticObjectMethod(typeface_clazz.get(), getSystemFontConfigLocation_methodID))JAVA_CHECK_RETURN(systemFontConfigLocation)
 
     for (auto&& iter : fields)
     {
         LOG("fields:%s sig:%s", iter.first.c_str(), iter.second.c_str());
 
-        jfieldID fieldID = __env->GetStaticFieldID(typeface_clazz, iter.first.c_str(), iter.second.c_str())JAVA_CHECK_RETURN(fieldID);
+        jfieldID fieldID = __env->GetStaticFieldID(typeface_clazz.get(), iter.first.c_str(), iter.second.c_str())JAVA_CHECK_RETURN(fieldID)
 
-        jobject field = __env->GetStaticObjectField(typeface_clazz, fieldID)JAVA_CHECK_RETURN(field);
+        ScopedLocalRef<jobject> field(__env, __env->GetStaticObjectField(typeface_clazz.get(), fieldID))JAVA_CHECK_RETURN(field)
 
-        jobject configFilename = __env->NewObject(file_clazz, file_methodID, systemFontConfigLocation, field)JAVA_CHECK_RETURN(configFilename);
+        ScopedLocalRef<jobject> configFilename(__env, __env->NewObject(file_clazz.get(), file_methodID, systemFontConfigLocation.get(), field.get()))JAVA_CHECK_RETURN(configFilename)
 
-        jobject fontsIn = __env->NewObject(fileInputStream_clazz, fileInputStream_methodID, configFilename)JAVA_CHECK_RETURN(fontsIn);
+        ScopedLocalRef<jobject> fontsIn(__env, __env->NewObject(fileInputStream_clazz.get(), fileInputStream_methodID, configFilename.get()))JAVA_CHECK_RETURN(fontsIn)
 
         if (sdk_ver_ <= __ANDROID_API_N_MR1__)
         {
-            jclass fontConfig_clazz = __env->FindClass("android/graphics/FontListParser$Config")JAVA_CHECK_RETURN(fontConfig_clazz);
-            jclass family_clazz = __env->FindClass("android/graphics/FontListParser$Family")JAVA_CHECK_RETURN(family_clazz);
-            jclass font_clazz = __env->FindClass("android/graphics/FontListParser$Font")JAVA_CHECK_RETURN(font_clazz);
-            jclass list_clazz = __env->FindClass("java/util/List")JAVA_CHECK_RETURN(list_clazz);
+            ScopedLocalRef<jclass> fontConfig_clazz(__env, __env->FindClass("android/graphics/FontListParser$Config"))JAVA_CHECK_RETURN(fontConfig_clazz)
+            ScopedLocalRef<jclass> family_clazz(__env, __env->FindClass("android/graphics/FontListParser$Family"))JAVA_CHECK_RETURN(family_clazz)
+            ScopedLocalRef<jclass> font_clazz(__env, __env->FindClass("android/graphics/FontListParser$Font"))JAVA_CHECK_RETURN(font_clazz)
+            ScopedLocalRef<jclass> list_clazz(__env, __env->FindClass("java/util/List"))JAVA_CHECK_RETURN(list_clazz)
 
-            jmethodID get_methodID = __env->GetMethodID(list_clazz, "get", "(I)Ljava/lang/Object;")JAVA_CHECK_RETURN(get_methodID);
-            jmethodID size_methodID = __env->GetMethodID(list_clazz, "size", "()I")JAVA_CHECK_RETURN(size_methodID);
+            jmethodID get_methodID = __env->GetMethodID(list_clazz.get(), "get", "(I)Ljava/lang/Object;")JAVA_CHECK_RETURN(get_methodID)
+            jmethodID size_methodID = __env->GetMethodID(list_clazz.get(), "size", "()I")JAVA_CHECK_RETURN(size_methodID)
 
-            jmethodID parse_fieldID = __env->GetStaticMethodID(fontListParser_clazz, "parse", "(Ljava/io/InputStream;)Landroid/graphics/FontListParser$Config;")JAVA_CHECK_RETURN(parse_fieldID);
-            jfieldID families_fieldID = __env->GetFieldID(fontConfig_clazz, "families", "Ljava/util/List;")JAVA_CHECK_RETURN(families_fieldID);
-            jfieldID fonts_fieldID = __env->GetFieldID(family_clazz, "fonts", "Ljava/util/List;")JAVA_CHECK_RETURN(fonts_fieldID);
-            jfieldID fontName_fieldID = __env->GetFieldID(font_clazz, "fontName", "Ljava/lang/String;")JAVA_CHECK_RETURN(fontName_fieldID);
+            jmethodID parse_fieldID = __env->GetStaticMethodID(fontListParser_clazz.get(), "parse", "(Ljava/io/InputStream;)Landroid/graphics/FontListParser$Config;")JAVA_CHECK_RETURN(parse_fieldID)
+            jfieldID families_fieldID = __env->GetFieldID(fontConfig_clazz.get(), "families", "Ljava/util/List;")JAVA_CHECK_RETURN(families_fieldID)
+            jfieldID fonts_fieldID = __env->GetFieldID(family_clazz.get(), "fonts", "Ljava/util/List;")JAVA_CHECK_RETURN(fonts_fieldID)
+            jfieldID fontName_fieldID = __env->GetFieldID(font_clazz.get(), "fontName", "Ljava/lang/String;")JAVA_CHECK_RETURN(fontName_fieldID)
 
-            jobject fontConfig = __env->CallStaticObjectMethod(fontListParser_clazz, parse_fieldID, fontsIn)JAVA_CHECK_RETURN(fontConfig);
+            ScopedLocalRef<jobject> fontConfig(__env, __env->CallStaticObjectMethod(fontListParser_clazz.get(), parse_fieldID, fontsIn.get()))JAVA_CHECK_RETURN(fontConfig)
 
-            jobject families = __env->GetObjectField(fontConfig, families_fieldID)JAVA_CHECK_RETURN(families);
+            ScopedLocalRef<jobject> families(__env, __env->GetObjectField(fontConfig.get(), families_fieldID))JAVA_CHECK_RETURN(families)
 
-            jint families_size = __env->CallIntMethod(families, size_methodID)JAVA_EXCEPTION_RETURN();
+            jint families_size = __env->CallIntMethod(families.get(), size_methodID)JAVA_EXCEPTION_RETURN()
 
             for (jint i = 0; i < families_size; ++i)
             {
-                jobject family = __env->CallObjectMethod(families, get_methodID, i)JAVA_CHECK_RETURN(family);
+                ScopedLocalRef<jobject> family(__env, __env->CallObjectMethod(families.get(), get_methodID, i))JAVA_CHECK_RETURN(family)
 
-                jobject fonts = __env->GetObjectField(family, fonts_fieldID)JAVA_CHECK_RETURN(fonts);
+                ScopedLocalRef<jobject> fonts(__env, __env->GetObjectField(family.get(), fonts_fieldID))JAVA_CHECK_RETURN(fonts)
 
-                jint fonts_size = __env->CallIntMethod(fonts, size_methodID)JAVA_EXCEPTION_RETURN();
+                jint fonts_size = __env->CallIntMethod(fonts.get(), size_methodID)JAVA_EXCEPTION_RETURN()
 
                 for (jint j = 0; j < fonts_size; ++j)
                 {
-                    jobject font = __env->CallObjectMethod(fonts, get_methodID, j)JAVA_CHECK_RETURN(font);
+                    ScopedLocalRef<jobject> font(__env, __env->CallObjectMethod(fonts.get(), get_methodID, j))JAVA_CHECK_RETURN(font)
 
-                    jstring fontname_string = static_cast<jstring>(__env->GetObjectField(font, fontName_fieldID))JAVA_CHECK_RETURN(fontname_string);
+                    ScopedLocalRef<jstring> fontname_string(__env, static_cast<jstring>(__env->GetObjectField(font.get(), fontName_fieldID)))JAVA_CHECK_RETURN(fontname_string)
 
-                    const char* fontname = __env->GetStringUTFChars(fontname_string, 0)JAVA_CHECK_RETURN(fontname);
+                    const char* fontname = __env->GetStringUTFChars(fontname_string.get(), 0)JAVA_CHECK_RETURN(fontname)
 
                     if (strlen(fontname) > 0)
                     {
@@ -232,52 +260,41 @@ static void get_fontnames_from_java(JNIEnv* __env, const std::unordered_map<std:
                         __names.emplace(name);
                     }
 
-                    __env->ReleaseStringUTFChars(fontname_string, fontname)JAVA_EXCEPTION_RETURN();
-
-                    __env->DeleteLocalRef(fontname_string)JAVA_EXCEPTION_RETURN();
-                    __env->DeleteLocalRef(font)JAVA_EXCEPTION_RETURN();
+                    __env->ReleaseStringUTFChars(fontname_string.get(), fontname);
                 }
-                __env->DeleteLocalRef(fonts)JAVA_EXCEPTION_RETURN();
-                __env->DeleteLocalRef(family)JAVA_EXCEPTION_RETURN();
             }
-            __env->DeleteLocalRef(families)JAVA_EXCEPTION_RETURN();
-            __env->DeleteLocalRef(fontConfig)JAVA_EXCEPTION_RETURN();
-            __env->DeleteLocalRef(list_clazz)JAVA_EXCEPTION_RETURN();
-            __env->DeleteLocalRef(font_clazz)JAVA_EXCEPTION_RETURN();
-            __env->DeleteLocalRef(family_clazz)JAVA_EXCEPTION_RETURN();
-            __env->DeleteLocalRef(fontConfig_clazz)JAVA_EXCEPTION_RETURN();
         }
         else if (sdk_ver_ <= __ANDROID_API_O_MR1__)
         {
-            jclass fontConfig_clazz = __env->FindClass("android/text/FontConfig")JAVA_CHECK_RETURN(fontConfig_clazz);
-            jclass family_clazz = __env->FindClass("android/text/FontConfig$Family")JAVA_CHECK_RETURN(family_clazz);
-            jclass font_clazz = __env->FindClass("android/text/FontConfig$Font")JAVA_CHECK_RETURN(font_clazz);
+            ScopedLocalRef<jclass> fontConfig_clazz(__env, __env->FindClass("android/text/FontConfig"))JAVA_CHECK_RETURN(fontConfig_clazz)
+            ScopedLocalRef<jclass> family_clazz(__env, __env->FindClass("android/text/FontConfig$Family"))JAVA_CHECK_RETURN(family_clazz)
+            ScopedLocalRef<jclass> font_clazz(__env, __env->FindClass("android/text/FontConfig$Font"))JAVA_CHECK_RETURN(font_clazz)
 
-            jmethodID parse_fieldID = __env->GetStaticMethodID(fontListParser_clazz, "parse", "(Ljava/io/InputStream;)Landroid/text/FontConfig;")JAVA_CHECK_RETURN(parse_fieldID);
-            jmethodID getFamilies_methodID = __env->GetMethodID(fontConfig_clazz, "getFamilies", "()[Landroid/text/FontConfig$Family;")JAVA_CHECK_RETURN(getFamilies_methodID);
-            jmethodID getFonts_methodID = __env->GetMethodID(family_clazz, "getFonts", "()[Landroid/text/FontConfig$Font;")JAVA_CHECK_RETURN(getFonts_methodID);
-            jmethodID getFontName_methodID = __env->GetMethodID(font_clazz, "getFontName", "()Ljava/lang/String;")JAVA_CHECK_RETURN(getFontName_methodID);
+            jmethodID parse_fieldID = __env->GetStaticMethodID(fontListParser_clazz.get(), "parse", "(Ljava/io/InputStream;)Landroid/text/FontConfig;")JAVA_CHECK_RETURN(parse_fieldID)
+            jmethodID getFamilies_methodID = __env->GetMethodID(fontConfig_clazz.get(), "getFamilies", "()[Landroid/text/FontConfig$Family;")JAVA_CHECK_RETURN(getFamilies_methodID)
+            jmethodID getFonts_methodID = __env->GetMethodID(family_clazz.get(), "getFonts", "()[Landroid/text/FontConfig$Font;")JAVA_CHECK_RETURN(getFonts_methodID)
+            jmethodID getFontName_methodID = __env->GetMethodID(font_clazz.get(), "getFontName", "()Ljava/lang/String;")JAVA_CHECK_RETURN(getFontName_methodID)
 
-            jobject fontConfig = __env->CallStaticObjectMethod(fontListParser_clazz, parse_fieldID, fontsIn)JAVA_CHECK_RETURN(fontConfig);
-            jobjectArray families = static_cast<jobjectArray>(__env->CallObjectMethod(fontConfig, getFamilies_methodID))JAVA_CHECK_RETURN(families);
+            ScopedLocalRef<jobject> fontConfig(__env, __env->CallStaticObjectMethod(fontListParser_clazz.get(), parse_fieldID, fontsIn.get()))JAVA_CHECK_RETURN(fontConfig)
+            ScopedLocalRef<jobjectArray> families(__env, static_cast<jobjectArray>(__env->CallObjectMethod(fontConfig.get(), getFamilies_methodID)))JAVA_CHECK_RETURN(families)
 
-            jsize families_size = __env->GetArrayLength(families)JAVA_EXCEPTION_RETURN();
+            jsize families_size = __env->GetArrayLength(families.get())JAVA_EXCEPTION_RETURN()
 
             for (jsize i = 0; i < families_size; ++i)
             {
-                jobject family = __env->GetObjectArrayElement(families, i)JAVA_CHECK_RETURN(family);
+                ScopedLocalRef<jobject> family(__env, __env->GetObjectArrayElement(families.get(), i))JAVA_CHECK_RETURN(family)
 
-                jobjectArray fonts = static_cast<jobjectArray>(__env->CallObjectMethod(family, getFonts_methodID))JAVA_CHECK_RETURN(fonts);
+                ScopedLocalRef<jobjectArray> fonts(__env, static_cast<jobjectArray>(__env->CallObjectMethod(family.get(), getFonts_methodID)))JAVA_CHECK_RETURN(fonts)
 
-                jsize fonts_size = __env->GetArrayLength(fonts)JAVA_EXCEPTION_RETURN();
+                jsize fonts_size = __env->GetArrayLength(fonts.get())JAVA_EXCEPTION_RETURN()
 
                 for (jsize j = 0; j < fonts_size; ++j)
                 {
-                    jobject font = __env->GetObjectArrayElement(fonts, j)JAVA_CHECK_RETURN(font);
+                    ScopedLocalRef<jobject> font(__env, __env->GetObjectArrayElement(fonts.get(), j))JAVA_CHECK_RETURN(font)
 
-                    jstring fontname_string = static_cast<jstring>(__env->CallObjectMethod(font, getFontName_methodID))JAVA_CHECK_RETURN(fontname_string);
+                    ScopedLocalRef<jstring> fontname_string(__env, static_cast<jstring>(__env->CallObjectMethod(font.get(), getFontName_methodID)))JAVA_CHECK_RETURN(fontname_string)
 
-                    const char* fontname = __env->GetStringUTFChars(fontname_string, 0)JAVA_CHECK_RETURN(fontname);
+                    const char* fontname = __env->GetStringUTFChars(fontname_string.get(), 0)JAVA_CHECK_RETURN(fontname)
 
                     if (strlen(fontname) > 0)
                     {
@@ -287,26 +304,10 @@ static void get_fontnames_from_java(JNIEnv* __env, const std::unordered_map<std:
                         __names.emplace(name);
                     }
 
-                    __env->ReleaseStringUTFChars(fontname_string, fontname)JAVA_EXCEPTION_RETURN();
-
-                    __env->DeleteLocalRef(fontname_string)JAVA_EXCEPTION_RETURN();
-                    __env->DeleteLocalRef(font)JAVA_EXCEPTION_RETURN();
+                    __env->ReleaseStringUTFChars(fontname_string.get(), fontname);
                 }
-
-                __env->DeleteLocalRef(fonts)JAVA_EXCEPTION_RETURN();
-                __env->DeleteLocalRef(family)JAVA_EXCEPTION_RETURN();
             }
-
-            __env->DeleteLocalRef(families)JAVA_EXCEPTION_RETURN();
-            __env->DeleteLocalRef(fontConfig)JAVA_EXCEPTION_RETURN();
-            __env->DeleteLocalRef(font_clazz)JAVA_EXCEPTION_RETURN();
-            __env->DeleteLocalRef(family_clazz)JAVA_EXCEPTION_RETURN();
-            __env->DeleteLocalRef(fontConfig_clazz)JAVA_EXCEPTION_RETURN();
         }
-
-        __env->DeleteLocalRef(fontsIn)JAVA_EXCEPTION_RETURN();
-        __env->DeleteLocalRef(configFilename)JAVA_EXCEPTION_RETURN();
-        __env->DeleteLocalRef(field)JAVA_EXCEPTION_RETURN();
     }
 }
 #endif
@@ -316,20 +317,20 @@ static void get_fontxml_for_oppo_from_java(JNIEnv* __env, std::unordered_map<std
 {
     javaExceptionGuard exceptionGuard(__env);
 
-    jclass colortypeface_clazz = __env->FindClass("android/graphics/ColorTypefaceInjector")JAVA_CHECK_RETURN(colortypeface_clazz);
+    ScopedLocalRef<jclass> colortypeface_clazz(__env, __env->FindClass("android/graphics/ColorTypefaceInjector"))JAVA_CHECK_RETURN(colortypeface_clazz)
 
-    jfieldID fieldID = __env->GetStaticFieldID(colortypeface_clazz, "SECOND_FONT_CONFIG_FILE", "Ljava/lang/String;")JAVA_CHECK_RETURN(fieldID);
+    jfieldID fieldID = __env->GetStaticFieldID(colortypeface_clazz.get(), "SECOND_FONT_CONFIG_FILE", "Ljava/lang/String;")JAVA_CHECK_RETURN(fieldID)
 
-    jstring field = static_cast<jstring>(__env->GetStaticObjectField(colortypeface_clazz, fieldID))JAVA_CHECK_RETURN(field);
+    ScopedLocalRef<jstring> field(__env, static_cast<jstring>(__env->GetStaticObjectField(colortypeface_clazz.get(), fieldID)))JAVA_CHECK_RETURN(field)
 
-    const char* config_file = __env->GetStringUTFChars(field, 0)JAVA_CHECK_RETURN(config_file);
+    const char* config_file = __env->GetStringUTFChars(field.get(), 0)JAVA_CHECK_RETURN(config_file)
 
     if (strlen(config_file) > 0)
     {
         ACCESS_XML(config_file, SYSTEM_FONTS, __xmlfiles);
     }
 
-    __env->ReleaseStringUTFChars(field, config_file)JAVA_EXCEPTION_RETURN();
+    __env->ReleaseStringUTFChars(field.get(), config_file);
 }
 #endif
 
@@ -345,19 +346,19 @@ static void get_fontxml_for_lge_from_java(JNIEnv* __env, std::unordered_map<std:
         auto get_fontxml = [&]() {
             javaExceptionGuard exceptionGuard(__env);
 
-            jclass config_clazz = __env->FindClass("com/lge/config/ConfigBuildFlags")JAVA_CHECK_RETURN(config_clazz);
+            ScopedLocalRef<jclass> config_clazz(__env, __env->FindClass("com/lge/config/ConfigBuildFlags"))JAVA_CHECK_RETURN(config_clazz)
 
-            jfieldID capp_fonts_fieldID = __env->GetStaticFieldID(config_clazz, "CAPP_FONTS", "Z")JAVA_CHECK_RETURN(capp_fonts_fieldID);
+            jfieldID capp_fonts_fieldID = __env->GetStaticFieldID(config_clazz.get(), "CAPP_FONTS", "Z")JAVA_CHECK_RETURN(capp_fonts_fieldID)
 
-            jboolean capp_fonts_field = __env->GetStaticBooleanField(config_clazz, capp_fonts_fieldID)JAVA_EXCEPTION_RETURN();
+            jboolean capp_fonts_field = __env->GetStaticBooleanField(config_clazz.get(), capp_fonts_fieldID)JAVA_EXCEPTION_RETURN()
 
             if (capp_fonts_field)
             {
                 ACCESS_XML(SYSTEM_ETC "fonts_lge.xml", SYSTEM_FONTS, __fonts);
 
-                jfieldID capp_emoji_fieldID = __env->GetStaticFieldID(config_clazz, "CAPP_EMOJI", "Z")JAVA_CHECK_RETURN(capp_emoji_fieldID);
+                jfieldID capp_emoji_fieldID = __env->GetStaticFieldID(config_clazz.get(), "CAPP_EMOJI", "Z")JAVA_CHECK_RETURN(capp_emoji_fieldID)
 
-                jboolean capp_emoji_field = __env->GetStaticBooleanField(config_clazz, capp_emoji_fieldID)JAVA_EXCEPTION_RETURN();
+                jboolean capp_emoji_field = __env->GetStaticBooleanField(config_clazz.get(), capp_emoji_fieldID)JAVA_EXCEPTION_RETURN()
 
                 if (capp_emoji_field)
                 {
@@ -395,11 +396,11 @@ static void get_fontxml_for_lge_from_java(JNIEnv* __env, std::unordered_map<std:
         auto get_fontxml = [&]() {
             javaExceptionGuard exceptionGuard(__env);
 
-            jclass config_clazz = __env->FindClass("com/lge/config/ConfigBuildFlags")JAVA_CHECK_RETURN(config_clazz);
+            ScopedLocalRef<jclass> config_clazz(__env, __env->FindClass("com/lge/config/ConfigBuildFlags"))JAVA_CHECK_RETURN(config_clazz)
 
-            jfieldID use_fonts_fieldID = __env->GetStaticFieldID(config_clazz, "USE_FONTS", "Z")JAVA_CHECK_RETURN(use_fonts_fieldID);
+            jfieldID use_fonts_fieldID = __env->GetStaticFieldID(config_clazz.get(), "USE_FONTS", "Z")JAVA_CHECK_RETURN(use_fonts_fieldID)
 
-            jboolean use_fonts =__env->GetStaticBooleanField(config_clazz, use_fonts_fieldID)JAVA_EXCEPTION_RETURN();
+            jboolean use_fonts =__env->GetStaticBooleanField(config_clazz.get(), use_fonts_fieldID)JAVA_EXCEPTION_RETURN()
 
             if (use_fonts)
             {
@@ -425,24 +426,24 @@ static void get_fontxml_for_motorola_from_java(JNIEnv* __env, std::unordered_map
         auto get_fontxml = [&](){
             javaExceptionGuard exceptionGuard(__env);
 
-            jclass environment_class = __env->FindClass("android/os/Environment")JAVA_CHECK_RETURN(environment_class);
-            jclass file_class = __env->FindClass("java/io/File")JAVA_CHECK_RETURN(file_class);
+            ScopedLocalRef<jclass> environment_class(__env, __env->FindClass("android/os/Environment"))JAVA_CHECK_RETURN(environment_class)
+            ScopedLocalRef<jclass> file_class(__env, __env->FindClass("java/io/File"))JAVA_CHECK_RETURN(file_class)
 
-            jmethodID getOemDirectory_methodID = __env->GetStaticMethodID(environment_class, "getOemDirectory", "()Ljava/io/File;")JAVA_CHECK_RETURN(getOemDirectory_methodID);
-            jmethodID getPath_methodID = __env->GetMethodID(file_class, "getPath", "()Ljava/lang/String;")JAVA_CHECK_RETURN(getPath_methodID);
+            jmethodID getOemDirectory_methodID = __env->GetStaticMethodID(environment_class.get(), "getOemDirectory", "()Ljava/io/File;")JAVA_CHECK_RETURN(getOemDirectory_methodID)
+            jmethodID getPath_methodID = __env->GetMethodID(file_class.get(), "getPath", "()Ljava/lang/String;")JAVA_CHECK_RETURN(getPath_methodID)
 
-            jobject oem_directory_object = __env->CallStaticObjectMethod(environment_class, getOemDirectory_methodID)JAVA_CHECK_RETURN(oem_directory_object);
+            ScopedLocalRef<jobject> oem_directory_object(__env, __env->CallStaticObjectMethod(environment_class.get(), getOemDirectory_methodID))JAVA_CHECK_RETURN(oem_directory_object)
 
-            jstring oem_path_string = static_cast<jstring>(__env->CallObjectMethod(oem_directory_object, getPath_methodID))JAVA_CHECK_RETURN(oem_path_string);
+            ScopedLocalRef<jstring> oem_path_string(__env, static_cast<jstring>(__env->CallObjectMethod(oem_directory_object.get(), getPath_methodID)))JAVA_CHECK_RETURN(oem_path_string)
 
-            const char* oem_path = __env->GetStringUTFChars(oem_path_string, 0)JAVA_CHECK_RETURN(oem_path);
+            const char* oem_path = __env->GetStringUTFChars(oem_path_string.get(), 0)JAVA_CHECK_RETURN(oem_path)
 
             if (strlen(oem_path) > 0)
             {
                 oem_dir = oem_path;
             }
 
-            __env->ReleaseStringUTFChars(oem_path_string, oem_path)JAVA_EXCEPTION_RETURN();
+            __env->ReleaseStringUTFChars(oem_path_string.get(), oem_path);
         };
 
         get_fontxml();
@@ -506,11 +507,11 @@ static void get_fontxml_for_meizu_from_java(JNIEnv* __env, std::unordered_map<st
             auto get_fontxml = [&](){
                 javaExceptionGuard exceptionGuard(__env);
 
-                jclass buildext_class = __env->FindClass("android/os/BuildExt")JAVA_CHECK_RETURN(buildext_class);
+                ScopedLocalRef<jclass> buildext_class(__env, __env->FindClass("android/os/BuildExt"))JAVA_CHECK_RETURN(buildext_class)
 
-                jmethodID isProductInternational_methodID = __env->GetStaticMethodID(buildext_class, "isProductInternational", "()Z")JAVA_CHECK_RETURN(isProductInternational_methodID);
+                jmethodID isProductInternational_methodID = __env->GetStaticMethodID(buildext_class.get(), "isProductInternational", "()Z")JAVA_CHECK_RETURN(isProductInternational_methodID)
 
-                jboolean isProductInternational = __env->CallStaticBooleanMethod(buildext_class, isProductInternational_methodID)JAVA_EXCEPTION_RETURN();
+                jboolean isProductInternational = __env->CallStaticBooleanMethod(buildext_class.get(), isProductInternational_methodID)JAVA_EXCEPTION_RETURN()
 
                 result = isProductInternational;
             };
@@ -535,58 +536,52 @@ static void get_typeface_native_ptrs_by_map_from_java(JNIEnv* __env, const std::
     javaExceptionGuard exceptionGuard(__env);
 
     // FindClass
-    jclass typeface_clazz = __env->FindClass("android/graphics/Typeface")JAVA_CHECK_RETURN(typeface_clazz);
-    jclass map_clazz = __env->FindClass("java/util/Map")JAVA_CHECK_RETURN(map_clazz);
-    jclass set_clazz = __env->FindClass("java/util/Set")JAVA_CHECK_RETURN(set_clazz);
-    jclass interator_clazz = __env->FindClass("java/util/Iterator")JAVA_CHECK_RETURN(interator_clazz);
-    jclass entry_clazz = __env->FindClass("java/util/Map$Entry")JAVA_CHECK_RETURN(entry_clazz);
+    ScopedLocalRef<jclass> typeface_clazz(__env, __env->FindClass("android/graphics/Typeface"))JAVA_CHECK_RETURN(typeface_clazz)
+    ScopedLocalRef<jclass> map_clazz(__env, __env->FindClass("java/util/Map"))JAVA_CHECK_RETURN(map_clazz)
+    ScopedLocalRef<jclass> set_clazz(__env, __env->FindClass("java/util/Set"))JAVA_CHECK_RETURN(set_clazz)
+    ScopedLocalRef<jclass> interator_clazz(__env, __env->FindClass("java/util/Iterator"))JAVA_CHECK_RETURN(interator_clazz)
+    ScopedLocalRef<jclass> entry_clazz(__env, __env->FindClass("java/util/Map$Entry"))JAVA_CHECK_RETURN(entry_clazz)
 
     // GetMethodID
-    jmethodID entrySet_methodID = __env->GetMethodID(map_clazz, "entrySet", "()Ljava/util/Set;")JAVA_CHECK_RETURN(entrySet_methodID);
-    jmethodID iterator_methodID = __env->GetMethodID(set_clazz, "iterator", "()Ljava/util/Iterator;")JAVA_CHECK_RETURN(iterator_methodID);
-    jmethodID hasNext_methodID = __env->GetMethodID(interator_clazz, "hasNext", "()Z")JAVA_CHECK_RETURN(hasNext_methodID);
-    jmethodID next_methodID = __env->GetMethodID(interator_clazz, "next", "()Ljava/lang/Object;")JAVA_CHECK_RETURN(next_methodID);
-    jmethodID getValue_methodID = __env->GetMethodID(entry_clazz, "getValue", "()Ljava/lang/Object;")JAVA_CHECK_RETURN(getValue_methodID);
+    jmethodID entrySet_methodID = __env->GetMethodID(map_clazz.get(), "entrySet", "()Ljava/util/Set;")JAVA_CHECK_RETURN(entrySet_methodID)
+    jmethodID iterator_methodID = __env->GetMethodID(set_clazz.get(), "iterator", "()Ljava/util/Iterator;")JAVA_CHECK_RETURN(iterator_methodID)
+    jmethodID hasNext_methodID = __env->GetMethodID(interator_clazz.get(), "hasNext", "()Z")JAVA_CHECK_RETURN(hasNext_methodID)
+    jmethodID next_methodID = __env->GetMethodID(interator_clazz.get(), "next", "()Ljava/lang/Object;")JAVA_CHECK_RETURN(next_methodID)
+    jmethodID getValue_methodID = __env->GetMethodID(entry_clazz.get(), "getValue", "()Ljava/lang/Object;")JAVA_CHECK_RETURN(getValue_methodID)
 
     // Get*FieldID
-    jfieldID native_instance_fieldID = __env->GetFieldID(typeface_clazz, "native_instance", "J")JAVA_CHECK_RETURN(native_instance_fieldID);
+    jfieldID native_instance_fieldID = __env->GetFieldID(typeface_clazz.get(), "native_instance", "J")JAVA_CHECK_RETURN(native_instance_fieldID)
 
     for (auto&& iter : fields)
     {
         LOG("fields:%s sig:%s", iter.first.c_str(), iter.second.c_str());
 
         // Get*FieldID
-        jfieldID fieldID = __env->GetStaticFieldID(typeface_clazz, iter.first.c_str(), iter.second.c_str())JAVA_CHECK_CONTINUE(fieldID);
+        jfieldID fieldID = __env->GetStaticFieldID(typeface_clazz.get(), iter.first.c_str(), iter.second.c_str())JAVA_CHECK_CONTINUE(fieldID)
 
         // Get*Field
-        jobject field = __env->GetStaticObjectField(typeface_clazz, fieldID)JAVA_CHECK_CONTINUE(field);
+        ScopedLocalRef<jobject> field(__env, __env->GetStaticObjectField(typeface_clazz.get(), fieldID))JAVA_CHECK_CONTINUE(field)
 
         // Call*Method
-        jobject set_object = __env->CallObjectMethod(field, entrySet_methodID)JAVA_CHECK_RETURN(set_object);
-        jobject iterator_object = __env->CallObjectMethod(set_object, iterator_methodID)JAVA_CHECK_RETURN(iterator_object);
+        ScopedLocalRef<jobject> set_object(__env, __env->CallObjectMethod(field.get(), entrySet_methodID))JAVA_CHECK_RETURN(set_object);
+        ScopedLocalRef<jobject> iterator_object(__env, __env->CallObjectMethod(set_object.get(), iterator_methodID))JAVA_CHECK_RETURN(iterator_object)
         while (1)
         {
-            jboolean hasNext = __env->CallBooleanMethod(iterator_object, hasNext_methodID)JAVA_EXCEPTION_RETURN();
+            jboolean hasNext = __env->CallBooleanMethod(iterator_object.get(), hasNext_methodID)JAVA_EXCEPTION_RETURN()
 
             if (!hasNext)
             {
                 break;
             }
 
-            jobject entry_object = __env->CallObjectMethod(iterator_object, next_methodID)JAVA_CHECK_RETURN(entry_object);
+            ScopedLocalRef<jobject> entry_object(__env, __env->CallObjectMethod(iterator_object.get(), next_methodID))JAVA_CHECK_RETURN(entry_object)
 
-            jobject typeface_object = __env->CallObjectMethod(entry_object, getValue_methodID)JAVA_EXCEPTION_RETURN()JAVA_NULLPTR_CONTINUE(typeface_object);
+            ScopedLocalRef<jobject> typeface_object(__env, __env->CallObjectMethod(entry_object.get(), getValue_methodID))JAVA_EXCEPTION_RETURN()JAVA_NULLPTR_CONTINUE(typeface_object)
 
-            void* native_instance = reinterpret_cast<void*>(__env->GetLongField(typeface_object, native_instance_fieldID))JAVA_CHECK_RETURN(native_instance);
+            void* native_instance = reinterpret_cast<void*>(__env->GetLongField(typeface_object.get(), native_instance_fieldID))JAVA_CHECK_RETURN(native_instance)
 
             __typefaces.emplace(native_instance);
-
-            __env->DeleteLocalRef(typeface_object)JAVA_EXCEPTION_RETURN();
-            __env->DeleteLocalRef(entry_object)JAVA_EXCEPTION_RETURN();
         }
-        __env->DeleteLocalRef(iterator_object)JAVA_EXCEPTION_RETURN();
-        __env->DeleteLocalRef(set_object)JAVA_EXCEPTION_RETURN();
-        __env->DeleteLocalRef(field)JAVA_EXCEPTION_RETURN();
     }
 }
 
@@ -595,44 +590,41 @@ static void get_font_data_from_java(JNIEnv* __env, std::unordered_map<void*, siz
 {
     javaExceptionGuard exceptionGuard(__env);
 
-    jclass systemfonts_clazz = __env->FindClass("android/graphics/fonts/SystemFonts")JAVA_CHECK_RETURN(systemfonts_clazz);
-    jclass font_clazz = __env->FindClass("android/graphics/fonts/Font")JAVA_CHECK_RETURN(font_clazz);
-    jclass set_clazz = __env->FindClass("java/util/Set")JAVA_CHECK_RETURN(set_clazz);
-    jclass interator_clazz = __env->FindClass("java/util/Iterator")JAVA_CHECK_RETURN(interator_clazz);
+    ScopedLocalRef<jclass> systemfonts_clazz(__env, __env->FindClass("android/graphics/fonts/SystemFonts"))JAVA_CHECK_RETURN(systemfonts_clazz)
+    ScopedLocalRef<jclass> font_clazz(__env, __env->FindClass("android/graphics/fonts/Font"))JAVA_CHECK_RETURN(font_clazz)
+    ScopedLocalRef<jclass> set_clazz(__env, __env->FindClass("java/util/Set"))JAVA_CHECK_RETURN(set_clazz)
+    ScopedLocalRef<jclass> interator_clazz(__env, __env->FindClass("java/util/Iterator"))JAVA_CHECK_RETURN(interator_clazz)
 
-    jmethodID getAvailableFonts_methodID = __env->GetStaticMethodID(systemfonts_clazz, "getAvailableFonts", "()Ljava/util/Set;")JAVA_CHECK_RETURN(getAvailableFonts_methodID);
-    jmethodID getBuffer_methodID = __env->GetMethodID(font_clazz, "getBuffer", "()Ljava/nio/ByteBuffer;")JAVA_CHECK_RETURN(getBuffer_methodID);
-    jmethodID iterator_methodID = __env->GetMethodID(set_clazz, "iterator", "()Ljava/util/Iterator;")JAVA_CHECK_RETURN(iterator_methodID);
-    jmethodID hasNext_methodID = __env->GetMethodID(interator_clazz, "hasNext", "()Z")JAVA_CHECK_RETURN(hasNext_methodID);
-    jmethodID next_methodID = __env->GetMethodID(interator_clazz, "next", "()Ljava/lang/Object;")JAVA_CHECK_RETURN(next_methodID);
+    jmethodID getAvailableFonts_methodID = __env->GetStaticMethodID(systemfonts_clazz.get(), "getAvailableFonts", "()Ljava/util/Set;")JAVA_CHECK_RETURN(getAvailableFonts_methodID)
+    jmethodID getBuffer_methodID = __env->GetMethodID(font_clazz.get(), "getBuffer", "()Ljava/nio/ByteBuffer;")JAVA_CHECK_RETURN(getBuffer_methodID)
+    jmethodID iterator_methodID = __env->GetMethodID(set_clazz.get(), "iterator", "()Ljava/util/Iterator;")JAVA_CHECK_RETURN(iterator_methodID)
+    jmethodID hasNext_methodID = __env->GetMethodID(interator_clazz.get(), "hasNext", "()Z")JAVA_CHECK_RETURN(hasNext_methodID)
+    jmethodID next_methodID = __env->GetMethodID(interator_clazz.get(), "next", "()Ljava/lang/Object;")JAVA_CHECK_RETURN(next_methodID)
 
-    jobject set_object = __env->CallStaticObjectMethod(systemfonts_clazz, getAvailableFonts_methodID)JAVA_CHECK_RETURN(set_object);
+    ScopedLocalRef<jobject> set_object(__env, __env->CallStaticObjectMethod(systemfonts_clazz.get(), getAvailableFonts_methodID))JAVA_CHECK_RETURN(set_object)
 
-    jobject iterator_object = __env->CallObjectMethod(set_object, iterator_methodID)JAVA_CHECK_RETURN(iterator_object);
+    ScopedLocalRef<jobject> iterator_object(__env, __env->CallObjectMethod(set_object.get(), iterator_methodID))JAVA_CHECK_RETURN(iterator_object)
 
     while (1)
     {
-        jboolean hasNext = __env->CallBooleanMethod(iterator_object, hasNext_methodID)JAVA_EXCEPTION_RETURN();
+        jboolean hasNext = __env->CallBooleanMethod(iterator_object.get(), hasNext_methodID)JAVA_EXCEPTION_RETURN()
         if (!hasNext)
         {
             break;
         }
 
-        jobject font_object = __env->CallObjectMethod(iterator_object, next_methodID)JAVA_CHECK_RETURN(font_object);
+        ScopedLocalRef<jobject> font_object(__env, __env->CallObjectMethod(iterator_object.get(), next_methodID))JAVA_CHECK_RETURN(font_object)
 
-        jobject bytebuffer = __env->CallObjectMethod(font_object, getBuffer_methodID)JAVA_CHECK_RETURN(bytebuffer);
+        ScopedLocalRef<jobject> bytebuffer(__env, __env->CallObjectMethod(font_object.get(), getBuffer_methodID))JAVA_CHECK_RETURN(bytebuffer)
 
-        const void* fontPtr = __env->GetDirectBufferAddress(bytebuffer)JAVA_CHECK_RETURN(fontPtr);
-        size_t fontSize = static_cast<size_t>(__env->GetDirectBufferCapacity(bytebuffer))JAVA_EXCEPTION_RETURN()EXPRESSION_RETURN(fontSize, <=, 0, );
+        const void* fontPtr = __env->GetDirectBufferAddress(bytebuffer.get())JAVA_CHECK_RETURN(fontPtr)
+        size_t fontSize = static_cast<size_t>(__env->GetDirectBufferCapacity(bytebuffer.get()))JAVA_EXCEPTION_RETURN()EXPRESSION_RETURN(fontSize, <=, 0, )
 
         if (!check_maps(fontPtr, fontSize, __fontData))
         {
             LOG("check_maps failed!");
             break;
         }
-
-        __env->DeleteLocalRef(bytebuffer)JAVA_EXCEPTION_RETURN();
-        __env->DeleteLocalRef(font_object)JAVA_EXCEPTION_RETURN();
     }
 }
 #endif
@@ -641,43 +633,39 @@ static void get_typeface_native_ptrs_from_java(JNIEnv* __env, const std::unorder
 {
     javaExceptionGuard exceptionGuard(__env);
 
-    jclass typeface_clazz = __env->FindClass("android/graphics/Typeface")JAVA_CHECK_RETURN(typeface_clazz);
+    ScopedLocalRef<jclass> typeface_clazz(__env, __env->FindClass("android/graphics/Typeface"))JAVA_CHECK_RETURN(typeface_clazz)
 
-    jfieldID native_instance_fieldID = __env->GetFieldID(typeface_clazz, "native_instance", "J")JAVA_CHECK_RETURN(native_instance_fieldID);
+    jfieldID native_instance_fieldID = __env->GetFieldID(typeface_clazz.get(), "native_instance", "J")JAVA_CHECK_RETURN(native_instance_fieldID)
 
     for (auto&& iter : fields)
     {
         LOG("fields:%s sig:%s", iter.first.c_str(), iter.second.c_str());
 
-        jfieldID fieldID = __env->GetStaticFieldID(typeface_clazz, iter.first.c_str(), iter.second.c_str())JAVA_CHECK_RETURN(fieldID);
+        jfieldID fieldID = __env->GetStaticFieldID(typeface_clazz.get(), iter.first.c_str(), iter.second.c_str())JAVA_CHECK_RETURN(fieldID)
 
-        jobject field = __env->GetStaticObjectField(typeface_clazz, fieldID)JAVA_CHECK_RETURN(field);
+        ScopedLocalRef<jobject> field(__env, __env->GetStaticObjectField(typeface_clazz.get(), fieldID))JAVA_CHECK_RETURN(field)
 
         if (iter.second == "[Landroid/graphics/Typeface;")
         {
-            jobjectArray typeface_array = static_cast<jobjectArray>(field)JAVA_CHECK_RETURN(typeface_array);
+            jobjectArray typeface_array = static_cast<jobjectArray>(field.get())JAVA_CHECK_RETURN(typeface_array)
 
-            jsize array_size = __env->GetArrayLength(typeface_array)JAVA_EXCEPTION_RETURN();
+            jsize array_size = __env->GetArrayLength(typeface_array)JAVA_EXCEPTION_RETURN()
 
             for (jsize i = 0; i < array_size; ++i)
             {
-                jobject typeface_object = __env->GetObjectArrayElement(typeface_array, i)JAVA_CHECK_RETURN(typeface_object);
+                ScopedLocalRef<jobject> typeface_object(__env, __env->GetObjectArrayElement(typeface_array, i))JAVA_CHECK_RETURN(typeface_object)
 
-                void* native_instance = reinterpret_cast<void*>(__env->GetLongField(typeface_object, native_instance_fieldID))JAVA_CHECK_RETURN(native_instance);
+                void* native_instance = reinterpret_cast<void*>(__env->GetLongField(typeface_object.get(), native_instance_fieldID))JAVA_CHECK_RETURN(native_instance)
 
                 __typefaces.emplace(native_instance);
-
-                __env->DeleteLocalRef(typeface_object)JAVA_EXCEPTION_RETURN();
             }
         }
         else
         {
-            void* native_instance = reinterpret_cast<void*>(__env->GetLongField(field, native_instance_fieldID))JAVA_CHECK_RETURN(native_instance);
+            void* native_instance = reinterpret_cast<void*>(__env->GetLongField(field.get(), native_instance_fieldID))JAVA_CHECK_RETURN(native_instance)
 
             __typefaces.emplace(native_instance);
         }
-
-        __env->DeleteLocalRef(field)JAVA_EXCEPTION_RETURN();
     }
 }
 
@@ -686,15 +674,15 @@ static void get_fallbackFonts_for_motorola_from_java(JNIEnv* __env, std::unorder
 {
     javaExceptionGuard exceptionGuard(__env);
 
-    jclass locale_class = __env->FindClass("java/util/Locale")JAVA_CHECK_RETURN(locale_class);
+    ScopedLocalRef<jclass> locale_class(__env, __env->FindClass("java/util/Locale"))JAVA_CHECK_RETURN(locale_class)
 
-    jmethodID getDefault_methodID = __env->GetStaticMethodID(locale_class, "getDefault", "()Ljava/util/Locale;")JAVA_CHECK_RETURN(getDefault_methodID);
-    jobject locale_default = __env->CallStaticObjectMethod(locale_class, getDefault_methodID)JAVA_CHECK_RETURN(locale_default);
+    jmethodID getDefault_methodID = __env->GetStaticMethodID(locale_class.get(), "getDefault", "()Ljava/util/Locale;")JAVA_CHECK_RETURN(getDefault_methodID)
+    ScopedLocalRef<jobject> locale_default(__env, __env->CallStaticObjectMethod(locale_class.get(), getDefault_methodID))JAVA_CHECK_RETURN(locale_default)
 
-    jmethodID toString_methodID = __env->GetMethodID(locale_class, "toString", "()Ljava/lang/String;")JAVA_CHECK_RETURN(toString_methodID);
-    jstring locale_string = static_cast<jstring>(__env->CallObjectMethod(locale_default, toString_methodID))JAVA_CHECK_RETURN(locale_string);
+    jmethodID toString_methodID = __env->GetMethodID(locale_class.get(), "toString", "()Ljava/lang/String;")JAVA_CHECK_RETURN(toString_methodID)
+    ScopedLocalRef<jstring> locale_string(__env, static_cast<jstring>(__env->CallObjectMethod(locale_default.get(), toString_methodID)))JAVA_CHECK_RETURN(locale_string)
 
-    const char* locale = __env->GetStringUTFChars(locale_string, 0)JAVA_CHECK_RETURN(locale_string);
+    const char* locale = __env->GetStringUTFChars(locale_string.get(), 0)JAVA_CHECK_RETURN(locale_string)
 
     if (strlen(locale) > 0 && (strcmp(locale, "en_ZG") == 0 || strcmp(locale, "en_EZ") == 0))
     {
@@ -705,7 +693,7 @@ static void get_fallbackFonts_for_motorola_from_java(JNIEnv* __env, std::unorder
         __fontFamilies.emplace("sZawgyiFallbackFonts", "[Landroid/graphics/FontFamily;");
     }
 
-    __env->ReleaseStringUTFChars(locale_string, locale)JAVA_EXCEPTION_RETURN();
+    __env->ReleaseStringUTFChars(locale_string.get(), locale);
 }
 #endif
 
@@ -713,67 +701,59 @@ static void get_fontFamily_native_ptrs_by_map_from_java(JNIEnv* __env, const std
 {
     javaExceptionGuard exceptionGuard(__env);
     // FindClass
-    jclass typeface_clazz = __env->FindClass("android/graphics/Typeface")JAVA_CHECK_RETURN(typeface_clazz);
-    jclass fontFamily_class = __env->FindClass("android/graphics/FontFamily")JAVA_CHECK_RETURN(fontFamily_class);
-    jclass map_clazz = __env->FindClass("java/util/Map")JAVA_CHECK_RETURN(map_clazz);
-    jclass set_clazz = __env->FindClass("java/util/Set")JAVA_CHECK_RETURN(set_clazz);
-    jclass interator_clazz = __env->FindClass("java/util/Iterator")JAVA_CHECK_RETURN(interator_clazz);
-    jclass entry_clazz = __env->FindClass("java/util/Map$Entry")JAVA_CHECK_RETURN(entry_clazz);
+    ScopedLocalRef<jclass> typeface_clazz(__env, __env->FindClass("android/graphics/Typeface"))JAVA_CHECK_RETURN(typeface_clazz)
+    ScopedLocalRef<jclass> fontFamily_class(__env, __env->FindClass("android/graphics/FontFamily"))JAVA_CHECK_RETURN(fontFamily_class)
+    ScopedLocalRef<jclass> map_clazz(__env, __env->FindClass("java/util/Map"))JAVA_CHECK_RETURN(map_clazz)
+    ScopedLocalRef<jclass> set_clazz(__env, __env->FindClass("java/util/Set"))JAVA_CHECK_RETURN(set_clazz)
+    ScopedLocalRef<jclass> interator_clazz(__env, __env->FindClass("java/util/Iterator"))JAVA_CHECK_RETURN(interator_clazz)
+    ScopedLocalRef<jclass> entry_clazz(__env, __env->FindClass("java/util/Map$Entry"))JAVA_CHECK_RETURN(entry_clazz)
 
     // GetMethodID
-    jmethodID entrySet_methodID = __env->GetMethodID(map_clazz, "entrySet", "()Ljava/util/Set;")JAVA_CHECK_RETURN(entrySet_methodID);
-    jmethodID iterator_methodID = __env->GetMethodID(set_clazz, "iterator", "()Ljava/util/Iterator;")JAVA_CHECK_RETURN(iterator_methodID);
-    jmethodID hasNext_methodID = __env->GetMethodID(interator_clazz, "hasNext", "()Z")JAVA_CHECK_RETURN(hasNext_methodID);
-    jmethodID next_methodID = __env->GetMethodID(interator_clazz, "next", "()Ljava/lang/Object;")JAVA_CHECK_RETURN(next_methodID);
-    jmethodID getValue_methodID = __env->GetMethodID(entry_clazz, "getValue", "()Ljava/lang/Object;")JAVA_CHECK_RETURN(getValue_methodID);
+    jmethodID entrySet_methodID = __env->GetMethodID(map_clazz.get(), "entrySet", "()Ljava/util/Set;")JAVA_CHECK_RETURN(entrySet_methodID)
+    jmethodID iterator_methodID = __env->GetMethodID(set_clazz.get(), "iterator", "()Ljava/util/Iterator;")JAVA_CHECK_RETURN(iterator_methodID)
+    jmethodID hasNext_methodID = __env->GetMethodID(interator_clazz.get(), "hasNext", "()Z")JAVA_CHECK_RETURN(hasNext_methodID)
+    jmethodID next_methodID = __env->GetMethodID(interator_clazz.get(), "next", "()Ljava/lang/Object;")JAVA_CHECK_RETURN(next_methodID)
+    jmethodID getValue_methodID = __env->GetMethodID(entry_clazz.get(), "getValue", "()Ljava/lang/Object;")JAVA_CHECK_RETURN(getValue_methodID)
 
-    jfieldID mNativePtr_fieldID = __env->GetFieldID(fontFamily_class, "mNativePtr", "J")JAVA_CHECK_RETURN(mNativePtr_fieldID);
+    jfieldID mNativePtr_fieldID = __env->GetFieldID(fontFamily_class.get(), "mNativePtr", "J")JAVA_CHECK_RETURN(mNativePtr_fieldID)
 
     for (auto&& iter : fields)
     {
         LOG("fields:%s sig:%s", iter.first.c_str(), iter.second.c_str());
 
         // Get*FieldID
-        jfieldID fieldID = __env->GetStaticFieldID(typeface_clazz, iter.first.c_str(), iter.second.c_str())JAVA_CHECK_CONTINUE(fieldID);
+        jfieldID fieldID = __env->GetStaticFieldID(typeface_clazz.get(), iter.first.c_str(), iter.second.c_str())JAVA_CHECK_CONTINUE(fieldID)
 
         // Get*Field
-        jobject field = __env->GetStaticObjectField(typeface_clazz, fieldID)JAVA_CHECK_CONTINUE(field);
+        ScopedLocalRef<jobject> field(__env, __env->GetStaticObjectField(typeface_clazz.get(), fieldID))JAVA_CHECK_CONTINUE(field)
 
         // Call*Method
-        jobject set_object = __env->CallObjectMethod(field, entrySet_methodID)JAVA_CHECK_RETURN(set_object);
-        jobject iterator_object = __env->CallObjectMethod(set_object, iterator_methodID)JAVA_CHECK_RETURN(iterator_object);
+        ScopedLocalRef<jobject> set_object(__env, __env->CallObjectMethod(field.get(), entrySet_methodID))JAVA_CHECK_RETURN(set_object)
+        ScopedLocalRef<jobject> iterator_object(__env, __env->CallObjectMethod(set_object.get(), iterator_methodID))JAVA_CHECK_RETURN(iterator_object)
 
         while (1)
         {
-            jboolean hasNext = __env->CallBooleanMethod(iterator_object, hasNext_methodID)JAVA_EXCEPTION_RETURN();
+            jboolean hasNext = __env->CallBooleanMethod(iterator_object.get(), hasNext_methodID)JAVA_EXCEPTION_RETURN()
             if (!hasNext)
             {
                 break;
             }
 
-            jobject entry_object = __env->CallObjectMethod(iterator_object, next_methodID)JAVA_CHECK_RETURN(entry_object);
+            ScopedLocalRef<jobject> entry_object(__env, __env->CallObjectMethod(iterator_object.get(), next_methodID))JAVA_CHECK_RETURN(entry_object)
 
-            jobjectArray field_array = static_cast<jobjectArray>(__env->CallObjectMethod(entry_object, getValue_methodID))JAVA_EXCEPTION_RETURN()JAVA_NULLPTR_CONTINUE(field_array);
+            ScopedLocalRef<jobjectArray> field_array(__env, static_cast<jobjectArray>(__env->CallObjectMethod(entry_object.get(), getValue_methodID)))JAVA_EXCEPTION_RETURN()JAVA_NULLPTR_CONTINUE(field_array)
 
-            jsize array_size = __env->GetArrayLength(field_array)JAVA_EXCEPTION_RETURN();
+            jsize array_size = __env->GetArrayLength(field_array.get())JAVA_EXCEPTION_RETURN()
 
             for (jsize i = 0; i < array_size; ++i)
             {
-                jobject fontfamily_object = __env->GetObjectArrayElement(field_array, i)JAVA_CHECK_RETURN(fontfamily_object);
+                ScopedLocalRef<jobject> fontfamily_object(__env, __env->GetObjectArrayElement(field_array.get(), i))JAVA_CHECK_RETURN(fontfamily_object)
 
-                void* mNativePtr_native = reinterpret_cast<void*>(__env->GetLongField(fontfamily_object, mNativePtr_fieldID))JAVA_CHECK_RETURN(mNativePtr_native);
+                void* mNativePtr_native = reinterpret_cast<void*>(__env->GetLongField(fontfamily_object.get(), mNativePtr_fieldID))JAVA_CHECK_RETURN(mNativePtr_native)
 
                 __fontFamilies.emplace(mNativePtr_native);
-
-                __env->DeleteLocalRef(fontfamily_object)JAVA_EXCEPTION_RETURN();
             }
-
-            __env->DeleteLocalRef(field_array)JAVA_EXCEPTION_RETURN();
-            __env->DeleteLocalRef(entry_object)JAVA_EXCEPTION_RETURN();
         }
-        __env->DeleteLocalRef(iterator_object)JAVA_EXCEPTION_RETURN();
-        __env->DeleteLocalRef(set_object)JAVA_EXCEPTION_RETURN();
-        __env->DeleteLocalRef(field)JAVA_EXCEPTION_RETURN();
     }
 }
 
@@ -781,45 +761,41 @@ static void get_fontFamily_native_ptrs_from_java(JNIEnv* __env, const std::unord
 {
     javaExceptionGuard exceptionGuard(__env);
 
-    jclass typeface_clazz = __env->FindClass("android/graphics/Typeface")JAVA_CHECK_RETURN(typeface_clazz);
-    jclass fontFamily_class = __env->FindClass("android/graphics/FontFamily")JAVA_CHECK_RETURN(fontFamily_class);
-    jfieldID mNativePtr_fieldID = __env->GetFieldID(fontFamily_class, "mNativePtr", "J")JAVA_CHECK_RETURN(mNativePtr_fieldID);
+    ScopedLocalRef<jclass> typeface_clazz(__env, __env->FindClass("android/graphics/Typeface"))JAVA_CHECK_RETURN(typeface_clazz)
+    ScopedLocalRef<jclass> fontFamily_class(__env, __env->FindClass("android/graphics/FontFamily"))JAVA_CHECK_RETURN(fontFamily_class)
+    jfieldID mNativePtr_fieldID = __env->GetFieldID(fontFamily_class.get(), "mNativePtr", "J")JAVA_CHECK_RETURN(mNativePtr_fieldID)
 
     for (auto&& iter : fields)
     {
         LOG("fields:%s sig:%s", iter.first.c_str(), iter.second.c_str());
 
         // Get*FieldID
-        jfieldID fieldID = __env->GetStaticFieldID(typeface_clazz, iter.first.c_str(), iter.second.c_str())JAVA_CHECK_CONTINUE(fieldID);
+        jfieldID fieldID = __env->GetStaticFieldID(typeface_clazz.get(), iter.first.c_str(), iter.second.c_str())JAVA_CHECK_CONTINUE(fieldID)
 
         // Get*Field
-        jobject field = __env->GetStaticObjectField(typeface_clazz, fieldID)JAVA_CHECK_CONTINUE(field);
+        jobject field = __env->GetStaticObjectField(typeface_clazz.get(), fieldID)JAVA_CHECK_CONTINUE(field)
 
         if (iter.second == "[Landroid/graphics/FontFamily;")
         {
-            jobjectArray field_array = static_cast<jobjectArray>(field)JAVA_CHECK_RETURN(field_array);
+            jobjectArray field_array = static_cast<jobjectArray>(field)JAVA_CHECK_RETURN(field_array)
 
-            jsize array_size = __env->GetArrayLength(field_array)JAVA_EXCEPTION_RETURN();
+            jsize array_size = __env->GetArrayLength(field_array)JAVA_EXCEPTION_RETURN()
 
             for (jsize i = 0; i < array_size; ++i)
             {
-                jobject fontfamily_object = __env->GetObjectArrayElement(field_array, i)JAVA_CHECK_RETURN(fontfamily_object);
+                ScopedLocalRef<jobject> fontfamily_object(__env, __env->GetObjectArrayElement(field_array, i))JAVA_CHECK_RETURN(fontfamily_object)
 
-                void* mNativePtr_native = reinterpret_cast<void*>(__env->GetLongField(fontfamily_object, mNativePtr_fieldID));JAVA_CHECK_RETURN(mNativePtr_native);
+                void* mNativePtr_native = reinterpret_cast<void*>(__env->GetLongField(fontfamily_object.get(), mNativePtr_fieldID))JAVA_CHECK_RETURN(mNativePtr_native)
 
                 __fontFamilies.emplace(mNativePtr_native);
-
-                __env->DeleteLocalRef(fontfamily_object)JAVA_EXCEPTION_RETURN();
             }
         }
         else
         {
-            void* mNativePtr_native = reinterpret_cast<void*>(__env->GetLongField(field, mNativePtr_fieldID));JAVA_CHECK_RETURN(mNativePtr_native);
+            void* mNativePtr_native = reinterpret_cast<void*>(__env->GetLongField(field, mNativePtr_fieldID))JAVA_CHECK_RETURN(mNativePtr_native)
 
             __fontFamilies.emplace(mNativePtr_native);
         }
-
-        __env->DeleteLocalRef(field)JAVA_EXCEPTION_RETURN();
     }
 }
 
@@ -829,19 +805,16 @@ static void get_blacklist_from_java(JNIEnv* __env, jintArray __black_list, std::
 
     if (__black_list != nullptr)
     {
-        jint* array = __env->GetIntArrayElements(__black_list, nullptr)JAVA_EXCEPTION_RETURN();
+        jint* array = __env->GetIntArrayElements(__black_list, nullptr)JAVA_CHECK_RETURN(array)
 
-        if (array != nullptr)
+        jsize size = __env->GetArrayLength(__black_list)JAVA_EXCEPTION_RETURN()
+
+        for (jsize i = 0; i < size; ++i)
         {
-            jsize size = __env->GetArrayLength(__black_list)JAVA_EXCEPTION_RETURN();
-
-            for (jsize i = 0; i < size; ++i)
-            {
-                __blacklist.insert(static_cast<size_t>(array[i]))JAVA_EXCEPTION_RETURN();
-                LOG("blacklist:%zu", static_cast<size_t>(array[i]))JAVA_EXCEPTION_RETURN();
-            }
+            __blacklist.insert(static_cast<size_t>(array[i]));
+            LOG("blacklist:%zu", static_cast<size_t>(array[i]));
         }
 
-        __env->ReleaseIntArrayElements(__black_list, array, 0)JAVA_EXCEPTION_RETURN();
+        __env->ReleaseIntArrayElements(__black_list, array, 0);
     }
 }

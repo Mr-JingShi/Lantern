@@ -24,12 +24,10 @@
 | SAMSUNG SM-G975F | Android 11 | 30 | arm64-v8a | OK |  |
 | SAMSUNG SM-A705FN | Android 11 | 30 | arm64-v8a | OK |  |
 | SAMSUNG SM-A7070 | Android 11 | 30 | arm64-v8a | OK |  |
-
 | ONEPLUS IN2010 | Android 11 | 30 | arm64-v8a | OK |  |
 | XIAOMI M2102K1AC | Android 11 | 30 | arm64-v8a | OK |  |
 | XIAOMI M2102J20SG | Android 11 | 30 | arm64-v8a | OK |  |
 | XIAOMI MI 9 | Android 11 | 30 | arm64-v8a | OK |  |
-
 | VIVO NEX3S | Android 10 | 29 | arm64-v8a | OK |  |
 | OPPO R17 | Android 10 | 29 | arm64-v8a | OK |  |
 | VIVO Y51S | Android 10 | 29 | arm64-v8a | OK |  |
