@@ -161,7 +161,7 @@ bool get_font_data_from_fontfamily(std::unordered_map<void*, size_t>& __fontData
         const void* memory_data = nullptr;
         size_t memory_size = 0;
 
-        if (sdk_ver_ >= __ANDROID_API_L__ && sdk_ver_ <= __ANDROID_API_M__)
+        if (/*sdk_ver_ >= __ANDROID_API_L__ && */sdk_ver_ <= __ANDROID_API_M__)
         {
             void* typeface = __GetSkTypeface(font)NULLPTR_RETURN(typeface, false);
             void* stream = __openStream(typeface, nullptr)NULLPTR_RETURN(stream, false);
@@ -245,7 +245,7 @@ bool get_font_data(JNIEnv* __env, std::unordered_map<void*, size_t>& __fontData)
     GetFontData_t GetFontData = nullptr;
     GetFontSize_t GetFontSize = nullptr;
 
-    if (sdk_ver_ >= __ANDROID_API_L__ && sdk_ver_ <= __ANDROID_API_M__)
+    if (/*sdk_ver_ >= __ANDROID_API_L__ && */sdk_ver_ <= __ANDROID_API_M__)
     {
         void* libandroid_runtime = nullptr;
         GET_HANDLE(libandroid_runtime, XDL_DEFAULT);
@@ -268,7 +268,7 @@ bool get_font_data(JNIEnv* __env, std::unordered_map<void*, size_t>& __fontData)
         CLOSE_HANDLE(libhwui); // 只是减少引用计数，并不会真正unload
     }
 
-    if (sdk_ver_ >= __ANDROID_API_L__ && sdk_ver_ <= __ANDROID_API_N_MR1__)
+    if (/*sdk_ver_ >= __ANDROID_API_L__ && */sdk_ver_ <= __ANDROID_API_N_MR1__)
     {
         void* libminikin = nullptr;
         GET_HANDLE(libminikin, XDL_DEFAULT);
@@ -279,7 +279,7 @@ bool get_font_data(JNIEnv* __env, std::unordered_map<void*, size_t>& __fontData)
 
 #if DEBUGGABLE
 
-    if (sdk_ver_ >= __ANDROID_API_L__ && sdk_ver_ <= __ANDROID_API_O_MR1__)
+    if (/*sdk_ver_ >= __ANDROID_API_L__ && */sdk_ver_ <= __ANDROID_API_O_MR1__)
     {
         // gMinikinLock _ZN7android12gMinikinLockE
     }
@@ -292,13 +292,11 @@ bool get_font_data(JNIEnv* __env, std::unordered_map<void*, size_t>& __fontData)
     size_t fontFamily_offset = get_fontFamily_offset()EXPRESSION_RETURN(fontFamily_offset, <, 0, false);
     size_t font_vector_offset = get_font_vector_offset()EXPRESSION_RETURN(font_vector_offset, <, 0, false);
 
-    std::set<void*> fontFamily_cache, font_cache;
-
-    std::set<void*> fontFamily_native_ptrs;
+    std::set<void*> fontFamily_native_ptrs, fontFamily_cache, font_cache;
 
 #if SPECIAL_MACHINE_ANDROID
 
-    if (::strcasestr(brand_.c_str(), "motorola"))
+    if (::strcasestr(manufacturer_.c_str(), "motorola"))
     {
         if (sdk_ver_ == __ANDROID_API_N__ || sdk_ver_ == __ANDROID_API_N_MR1__)
         {
@@ -318,9 +316,39 @@ bool get_font_data(JNIEnv* __env, std::unordered_map<void*, size_t>& __fontData)
     if (sdk_ver_ == __ANDROID_API_P__)
     {
         std::unordered_map<std::string, std::string> systemFallbackMapields;
-        systemFallbackMapields.emplace("sSystemFallbackMap", "Ljava/util/Map;");
+
+#if SPECIAL_MACHINE_ANDROID
+
+        if (::strcasestr(manufacturer_.c_str(), "OnePlus"))
+        {
+            systemFallbackMapields.emplace("sOriginFallbackMap", "Ljava/util/HashMap;");
+            systemFallbackMapields.emplace("sSlateFallbackMap", "Ljava/util/HashMap;");
+        }
+
+        if (systemFallbackMapields.empty())
+#endif
+        {
+            systemFallbackMapields.emplace("sSystemFallbackMap", "Ljava/util/Map;");
+        }
+
         get_fontFamily_native_ptrs_by_map_from_java(__env, systemFallbackMapields, fontFamily_native_ptrs);
     }
+
+#if SPECIAL_MACHINE_ANDROID
+    else if (sdk_ver_ > __ANDROID_API_P__)
+    {
+        // samsung/google/OPPO/HUAWEI/vivo/
+        // Accessing hidden method Landroid/graphics/fonts/SystemFonts;->getRawSystemFallbackMap()Ljava/util/Map; (blacklist, JNI, denied)
+
+        // 部分小米有权限，部分一加有权限
+        // Accessing hidden method Landroid/graphics/fonts/SystemFonts;->getRawSystemFallbackMap()Ljava/util/Map; (blacklist, JNI, allowed)
+        if (::strcasestr(manufacturer_.c_str(), "Xiaomi") || ::strcasestr(manufacturer_.c_str(), "OnePlus"))
+        {
+            get_fontFamily_native_ptrs_for_Q_and_R_from_java(__env, fontFamily_native_ptrs);
+        }
+    }
+
+#endif
 
     bool get_font_data_from_fontfamily_result = !fontFamily_native_ptrs.empty();
 
@@ -355,22 +383,32 @@ bool get_font_data(JNIEnv* __env, std::unordered_map<void*, size_t>& __fontData)
 
     std::set<void*> typeface_native_ptrs;
 
-    if (sdk_ver_ != __ANDROID_API_P__ || !get_font_data_from_fontfamily_result)
+    if (sdk_ver_ < __ANDROID_API_P__ || !get_font_data_from_fontfamily_result)
     {
         std::unordered_map<std::string, std::string> systemFontMapFields;
-        systemFontMapFields.emplace("sSystemFontMap", "Ljava/util/Map;");
 
 #if SPECIAL_MACHINE_ANDROID
 
-        if (::strcasestr(brand_.c_str(), "OnePlus"))
+        if (::strcasestr(manufacturer_.c_str(), "OnePlus"))
         {
-            if (sdk_ver_ == __ANDROID_API_N_MR1__)
+            if (sdk_ver_ >= __ANDROID_API_N__ && sdk_ver_ <= __ANDROID_API_O_MR1__)
             {
-                // systemFontMapFields.insert({"sOriginSystemFontMap", "Ljava/util/Map;"}); // 使用sSystemFontMap代替
+                systemFontMapFields.emplace("sOriginSystemFontMap", "Ljava/util/Map;");
                 systemFontMapFields.emplace("sSlateSystemFontMap", "Ljava/util/Map;");
             }
+            else if (sdk_ver_ == __ANDROID_API_P__)
+            {
+                systemFontMapFields.emplace("sOriginFontMap", "Ljava/util/HashMap;");
+                systemFontMapFields.emplace("sSlateFontMap", "Ljava/util/HashMap;");
+            }
+
+            // Android 10 由于权限原因，剩余大量字体库未munmap
+            // Accessing hidden field Landroid/graphics/Typeface;->sSlateFontMap:Ljava/util/HashMap; (blacklist, JNI, denied)
+            // Accessing hidden field Landroid/graphics/Typeface;->sOriginFontMap:Ljava/util/HashMap; (blacklist, JNI, denied)
+            // Android 11
+            // sSystemFontMap Ljava/util/Map;
         }
-        else if (::strcasestr(brand_.c_str(), "OPPO"))
+        else if (::strcasestr(manufacturer_.c_str(), "OPPO"))
         {
             if (sdk_ver_ == __ANDROID_API_N__ || sdk_ver_ == __ANDROID_API_N_MR1__)
             {
@@ -385,9 +423,18 @@ bool get_font_data(JNIEnv* __env, std::unordered_map<void*, size_t>& __fontData)
             }
         }
 
+        if (systemFontMapFields.empty())
 #endif
+        {
+            systemFontMapFields.emplace("sSystemFontMap", "Ljava/util/Map;");
+        }
 
         get_typeface_native_ptrs_by_map_from_java(__env, systemFontMapFields, typeface_native_ptrs);
+
+        if (typeface_native_ptrs.empty() && systemFontMapFields.find("sSystemFontMap") == systemFontMapFields.end())
+        {
+            get_typeface_native_ptrs_by_map_from_java(__env, {{"sSystemFontMap", "Ljava/util/Map;"}}, typeface_native_ptrs);
+        }
     }
 
     for (auto&& iter : typeface_native_ptrs)
@@ -425,22 +472,22 @@ bool AndroidFontsExt_Install(JNIEnv* __env, jint __sdk_ver, jintArray __black_li
     sdk_ver_ = __sdk_ver;
     LOG("sdk_ver_ : %d", sdk_ver_);
 
-    char brand[92] = {0};
+    char manufacturer[92] = {0};
 
-    if (__system_property_get("ro.product.brand", brand) <= 0)
+    if (__system_property_get("ro.product.manufacturer", manufacturer) <= 0)
     {
-        LOG("get ro.product.brand falied");
+        LOG("get ro.product.manufacturer falied");
         return false;
     }
 
-    brand_ = brand;
-    LOG("brand:%s", brand);
+    manufacturer_ = manufacturer;
+    LOG("manufacturer:%s", manufacturer);
 
     std::unordered_map<void*, size_t> fontData;
 
 #if MUNMAP_ALL_IN_L_AND_M
 
-    if (sdk_ver_ >= __ANDROID_API_L__ && sdk_ver_ <= __ANDROID_API_M__)
+    if (/* sdk_ver_ >= __ANDROID_API_L__ && */sdk_ver_ <= __ANDROID_API_M__)
     {
         munmap_all_for_L_and_M = true;
     }
@@ -501,7 +548,7 @@ bool AndroidFontsExt_Install(JNIEnv* __env, jint __sdk_ver, jintArray __black_li
 
     // HUAWEI HONOR KIW-AL10  Android 6.0
     // 在执行SkTypeface::openStream时会munmap旧的DroidSansChinese.ttf，然后mmap新的DroidSansChinese.ttf
-    // 不执行lantern的任何操作，KIW-AL10机型额会进行上述替换操作。
+    // 不执行lantern的任何操作，KIW-AL10机型同样会进行上述替换操作。
     // 因此found_ttf_maps要放到get_font_data之后
     found_ttf_maps([&](uintptr_t __start, uintptr_t __end, char __perms[4], const char* __path) -> bool
     {
@@ -511,7 +558,7 @@ bool AndroidFontsExt_Install(JNIEnv* __env, jint __sdk_ver, jintArray __black_li
 
     bytehook_init(BYTEHOOK_MODE_AUTOMATIC, false);
 
-    if (sdk_ver_ >= __ANDROID_API_L__ && sdk_ver_ <= __ANDROID_API_M__)
+    if (/* sdk_ver_ >= __ANDROID_API_L__ && */sdk_ver_ <= __ANDROID_API_M__)
     {
         HOOK_PARTIAL(libskia_filter, mmap);
 #if !DEBUGGABLE
@@ -538,7 +585,7 @@ bool AndroidFontsExt_Install(JNIEnv* __env, jint __sdk_ver, jintArray __black_li
 
     CLOSE_HANDLE(libft2); // 只是减少引用计数，并不会真正unload
 
-    if (sdk_ver_ >= __ANDROID_API_L__ && sdk_ver_ <= __ANDROID_API_O_MR1__)
+    if (/* sdk_ver_ >= __ANDROID_API_L__ && */sdk_ver_ <= __ANDROID_API_O_MR1__)
     {
         HOOK_PARTIAL(libskia_filter, FT_Open_Face);
         HOOK_PARTIAL(libskia_filter, FT_New_Size);
@@ -588,7 +635,7 @@ bool AndroidFontsExt_Install(JNIEnv* __env, jint __sdk_ver, jintArray __black_li
 
         HOOK_SINGLE("libminikin.so", hb_blob_create);
 
-        if (sdk_ver_ <= __ANDROID_API_O_MR1__)
+        if (/* sdk_ver_ >= __ANDROID_API_L__ && */sdk_ver_ <= __ANDROID_API_O_MR1__)
         {
             HOOK_SINGLE("libminikin.so", hb_font_reference);
         }

@@ -203,3 +203,293 @@ mmap_proxy readlink file:/data/themes/0/fonts/DroidSansChinese.ttf
 mmap_proxy ret:0xe7fb0000
 
 ****************************************************************************************************
+
+剩余大量字体库未munmap机型
+
+Android 10 OnePlus IN2010
+
+Accessing hidden field Landroid/graphics/Typeface;->sSlateFontMap:Ljava/util/HashMap; (blacklist, JNI, denied)
+Accessing hidden field Landroid/graphics/Typeface;->sOriginFontMap:Ljava/util/HashMap; (blacklist, JNI, denied)
+
+```java
+public final class SystemFonts {
+    private static final String DEFAULT_FAMILY = "sans-serif";
+    private static final String TAG = "SystemFonts";
+    private static FontConfig.Alias[] sAliases;
+    private static List<Font> sAvailableFonts;
+    private static final FontConfig.Alias[] sOriginAliases;
+    private static List<Font> sOriginAvailableFonts;
+    private static Map<String, FontFamily[]> sOriginFallbackMap;
+    private static final FontConfig.Alias[] sSlateAliases;
+    private static List<Font> sSlateAvailableFonts;
+    private static Map<String, FontFamily[]> sSlateFallbackMap;
+    private static Map<String, FontFamily[]> sSystemFallbackMap;
+
+    static {
+        ArrayMap<String, FontFamily[]> originFallbackMap = new ArrayMap<>();
+        ArrayMap<String, FontFamily[]> slateFallbackMap = new ArrayMap<>();
+        ArrayList<Font> availableOriginFonts = new ArrayList<>();
+        ArrayList<Font> availableSlateFonts = new ArrayList<>();
+        FontCustomizationParser.Result oemCustomization = readFontCustomization("/product/etc/fonts_customization.xml", "/product/fonts/");
+        if (!OpFontHelperInjector.sFeatureEnable) {
+            sOriginAliases = buildSystemFallback("/system/etc/fonts.xml", "/system/fonts/", oemCustomization, originFallbackMap, availableOriginFonts);
+        } else {
+            sOriginAliases = buildSystemFallback(OpFontHelperInjector.getSystemFontsXmlPath("/system/etc/fonts.xml"), "/system/fonts/", oemCustomization, originFallbackMap, availableOriginFonts);
+        }
+        sAliases = (FontConfig.Alias[]) sOriginAliases.clone();
+        sOriginFallbackMap = Collections.unmodifiableMap(originFallbackMap);
+        sSystemFallbackMap = Collections.unmodifiableMap(originFallbackMap);
+        sAvailableFonts = Collections.unmodifiableList(availableOriginFonts);
+        sOriginAvailableFonts = Collections.unmodifiableList(availableOriginFonts);
+        sSlateAliases = buildSystemFallback("/system/etc/fonts_slate.xml", "/system/fonts/", oemCustomization, slateFallbackMap, availableSlateFonts);
+        sSlateFallbackMap = Collections.unmodifiableMap(slateFallbackMap);
+        sSlateAvailableFonts = Collections.unmodifiableList(availableSlateFonts);
+    }
+}
+
+
+public class Typeface {
+    public static final int BOLD = 1;
+    public static final int BOLD_ITALIC = 3;
+    public static final Typeface DEFAULT;
+    public static final Typeface DEFAULT_BOLD;
+    private static final String DEFAULT_FAMILY = "sans-serif";
+    static final String FONTS_ORIGIN_CONFIG = "fonts.xml";
+    static final String FONTS_SLATE_CONFIG = "fonts_slate.xml";
+    public static final int ITALIC = 2;
+    public static final Typeface MONOSPACE;
+    public static final int NORMAL = 0;
+    public static final int ONEPLUS_FONT_ORIGIN = 1;
+    public static final int ONEPLUS_FONT_SLATE = 2;
+    public static final Typeface OP_TYPEFACE_MEDIUM;
+    public static final int RESOLVE_BY_FONT_TABLE = -1;
+    public static final Typeface SANS_SERIF;
+    public static final Typeface SERIF;
+    private static final int STYLE_ITALIC = 1;
+    public static final int STYLE_MASK = 3;
+    private static final int STYLE_NORMAL = 0;
+    static Typeface sDefaultTypeface;
+    @UnsupportedAppUsage(trackingBug = 123769446)
+    static Typeface[] sDefaults;
+    private static final boolean sOpDynamicFontV2;
+    static HashMap<String, Typeface> sOriginFontMap;
+    static HashMap<String, Typeface> sSlateFontMap;
+    @UnsupportedAppUsage(trackingBug = 123769347)
+    static Map<String, Typeface> sSystemFontMap;
+    public boolean isLikeDefault;
+    public boolean mOpIsThirdTypeface;
+    @UnsupportedAppUsage
+    private int mStyle;
+    private int[] mSupportedAxes;
+    private int mWeight;
+    @UnsupportedAppUsage
+    public long native_instance;
+    private static String TAG = "Typeface";
+    private static final NativeAllocationRegistry sRegistry = NativeAllocationRegistry.createMalloced(Typeface.class.getClassLoader(), nativeGetReleaseFunc());
+    private static String TAG_FONT = "Font";
+    @GuardedBy({"sStyledCacheLock"})
+    private static final LongSparseArray<SparseArray<Typeface>> sStyledTypefaceCache = new LongSparseArray<>(3);
+    private static final Object sStyledCacheLock = new Object();
+    @GuardedBy({"sWeightCacheLock"})
+    private static final LongSparseArray<SparseArray<Typeface>> sWeightTypefaceCache = new LongSparseArray<>(3);
+    private static final Object sWeightCacheLock = new Object();
+    @GuardedBy({"sDynamicCacheLock"})
+    private static final LruCache<String, Typeface> sDynamicTypefaceCache = new LruCache<>(16);
+    private static final Object sDynamicCacheLock = new Object();
+    @UnsupportedAppUsage(trackingBug = 123768928)
+    @Deprecated
+    static final Map<String, FontFamily[]> sSystemFallbackMap = Collections.emptyMap();
+    private static final int[] EMPTY_AXES = new int[0];
+
+    static {
+        HashMap<String, Typeface> systemFontMap = new HashMap<>();
+        OpFontHelperInjector.resetToDefaultIfFeatureOff();
+        SystemFonts.changeFallbackFont(2);
+        initSystemDefaultTypefaces(systemFontMap, SystemFonts.getRawSystemFallbackMap(), SystemFonts.getAliases());
+        sSlateFontMap = new HashMap<>(Collections.unmodifiableMap(systemFontMap));
+        systemFontMap.clear();
+        SystemFonts.changeFallbackFont(1);
+        initSystemDefaultTypefaces(systemFontMap, SystemFonts.getRawSystemFallbackMap(), SystemFonts.getAliases());
+        sOriginFontMap = new HashMap<>(Collections.unmodifiableMap(systemFontMap));
+        sSystemFontMap = (HashMap) sOriginFontMap.clone();
+        if (sSystemFontMap.containsKey(DEFAULT_FAMILY)) {
+            setDefault(sSystemFontMap.get(DEFAULT_FAMILY));
+        }
+        String str = null;
+        DEFAULT = create(str, 0);
+        DEFAULT_BOLD = create(str, 1);
+        SANS_SERIF = create(DEFAULT_FAMILY, 0);
+        SERIF = create("serif", 0);
+        MONOSPACE = create("monospace", 0);
+        sDefaults = new Typeface[]{DEFAULT, DEFAULT_BOLD, create(str, 2), create(str, 3)};
+        OP_TYPEFACE_MEDIUM = create("sans-serif-medium", 0);
+        String[] genericFamilies = {"serif", DEFAULT_FAMILY, "cursive", "fantasy", "monospace", "system-ui"};
+        for (String genericFamily : genericFamilies) {
+            registerGenericFamilyNative(genericFamily, systemFontMap.get(genericFamily));
+        }
+        sOpDynamicFontV2 = OpFontHelperInjector.sFeatureEnable;
+    }
+}
+```
+
+Android 10 samsung SM-G988U
+
+buildSystemFallback 方法被调用了两次， sSystemFallbackMap 只保留了一份 /system/etc/fonts.xml
+
+```java
+public final class SystemFonts {
+    static {
+        ArrayMap<String, FontFamily[]> systemFallbackMap = new ArrayMap<>();
+        ArrayList<Font> availableFonts = new ArrayList<>();
+        FontCustomizationParser.Result oemCustomization = readFontCustomization("/product/etc/fonts_customization.xml", "/product/fonts/");
+        sAliases = buildSystemFallback("/system/etc/fonts.xml", "/system/fonts/", oemCustomization, systemFallbackMap, availableFonts);
+        sAvailableFonts = Collections.unmodifiableList(availableFonts);
+        ArrayList<Font> availableOmcFonts = new ArrayList<>();
+        String fontXmlPath = getOmcEtcPath();
+        sOmcAliases = buildSystemFallback(fontXmlPath, "/system/fonts/", oemCustomization, systemFallbackMap, availableOmcFonts);
+        sSystemFallbackMap = Collections.unmodifiableMap(systemFallbackMap);
+    }
+}
+```
+
+Android 11 nubia NX629J
+
+Typeface类静态块中systemFontMap因为registerGenericFamilyNative(genericFamily, systemFontMap.get(genericFamily));语句的缘故，持续被native层引用，始终并没有被GC回收
+
+```java
+public final class SystemFonts {
+    private static final String DEFAULT_FAMILY = "sans-serif";
+    private static final String TAG = "SystemFonts";
+    private static FontConfig.Alias[] sAliases;
+    private static Map<String, FontFamily[]> sSystemFallbackMap = new ArrayMap();
+    private static List<Font> sAvailableFonts = new ArrayList();
+    
+    static {
+        ArrayMap<String, FontFamily[]> systemFallbackMap = new ArrayMap<>();
+        ArrayList<Font> availableFonts = new ArrayList<>();
+        FontCustomizationParser.Result oemCustomization = readFontCustomization("/product/etc/fonts_customization.xml", "/product/fonts/");
+        sAliases = buildSystemFallback("/system/etc/fonts.xml", "/system/fonts/", oemCustomization, systemFallbackMap, availableFonts);
+        sSystemFallbackMap.putAll(systemFallbackMap);
+        sAvailableFonts.addAll(availableFonts);
+    }
+    
+    public static Map<String, FontFamily[]> getRawSystemFallbackMap() {
+        return sSystemFallbackMap;
+    }
+    
+    public static void deinit() {
+        if (sAliases != null) {
+            sAliases = null;
+        }
+        Map<String, FontFamily[]> map = sSystemFallbackMap;
+        if (map != null) {
+            map.clear();
+        }
+        List<Font> list = sAvailableFonts;
+        if (list != null) {
+            list.clear();
+        }
+    }
+
+    public static void reload() {
+        ArrayMap<String, FontFamily[]> systemFallbackMap = new ArrayMap<>();
+        ArrayList<Font> availableFonts = new ArrayList<>();
+        FontCustomizationParser.Result oemCustomization = readFontCustomization("/product/etc/fonts_customization.xml", "/product/fonts/");
+        sAliases = buildSystemFallback("/system/etc/fonts.xml", "/system/fonts/", oemCustomization, systemFallbackMap, availableFonts);
+        sSystemFallbackMap.putAll(systemFallbackMap);
+        sAvailableFonts.addAll(availableFonts);
+    }
+}
+
+public class Typeface {
+    public static final int BOLD = 1;
+    public static final int BOLD_ITALIC = 3;
+    public static final Typeface DEFAULT;
+    public static final Typeface DEFAULT_BOLD;
+    private static final String DEFAULT_FAMILY = "sans-serif";
+    public static final int ITALIC = 2;
+    public static final Typeface MONOSPACE;
+    public static final int NORMAL = 0;
+    public static Typeface NUBIA_DEFAULT = null;
+    public static Typeface NUBIA_DEFAULT_BOLD = null;
+    public static Typeface NUBIA_SANS_SERIF = null;
+    public static final int RESOLVE_BY_FONT_TABLE = -1;
+    public static final Typeface SANS_SERIF;
+    public static final Typeface SERIF;
+    private static final int STYLE_ITALIC = 1;
+    public static final int STYLE_MASK = 3;
+    private static final int STYLE_NORMAL = 0;
+    static Typeface sDefaultTypeface;
+    static Typeface[] sDefaults;
+    private int mStyle;
+    private int[] mSupportedAxes;
+    private int mWeight;
+    public long native_instance;
+    private static String TAG = "Typeface";
+    private static final NativeAllocationRegistry sRegistry = NativeAllocationRegistry.createMalloced(Typeface.class.getClassLoader(), nativeGetReleaseFunc());
+    private static final LongSparseArray<SparseArray<Typeface>> sStyledTypefaceCache = new LongSparseArray<>(3);
+    private static final Object sStyledCacheLock = new Object();
+    private static final LongSparseArray<SparseArray<Typeface>> sWeightTypefaceCache = new LongSparseArray<>(3);
+    private static final Object sWeightCacheLock = new Object();
+    private static final LruCache<String, Typeface> sDynamicTypefaceCache = new LruCache<>(16);
+    private static final Object sDynamicCacheLock = new Object();
+    static Map<String, Typeface> sSystemFontMap = new ArrayMap();
+    @Deprecated
+    static final Map<String, FontFamily[]> sSystemFallbackMap = Collections.emptyMap();
+    private static final int[] EMPTY_AXES = new int[0];
+
+    static {
+        HashMap<String, Typeface> systemFontMap = new HashMap<>();
+        initSystemDefaultTypefaces(systemFontMap, SystemFonts.getRawSystemFallbackMap(), SystemFonts.getAliases());
+        sSystemFontMap.putAll(systemFontMap);
+        if (sSystemFontMap.get(DEFAULT_FAMILY) == null) {
+            Log.w(TAG, "DEFAULT_FAMILY is null, reload again");
+            FontListParser.sReloadWithoutRedirect = true;
+            reload();
+            FontListParser.sReloadWithoutRedirect = false;
+        } else {
+            setDefault(sSystemFontMap.get(DEFAULT_FAMILY));
+        }
+        String str = null;
+        DEFAULT = create(str, 0);
+        DEFAULT_BOLD = create(str, 1);
+        SANS_SERIF = create(DEFAULT_FAMILY, 0);
+        SERIF = create("serif", 0);
+        MONOSPACE = create("monospace", 0);
+        NUBIA_DEFAULT = create(DEFAULT_FAMILY, 0);
+        NUBIA_DEFAULT_BOLD = create(DEFAULT_FAMILY, 1);
+        NUBIA_SANS_SERIF = create(DEFAULT_FAMILY, 0);
+        sDefaults = new Typeface[]{DEFAULT, DEFAULT_BOLD, create(str, 2), create(str, 3)};
+        String[] genericFamilies = {"serif", DEFAULT_FAMILY, "cursive", "fantasy", "monospace", "system-ui"};
+        for (String genericFamily : genericFamilies) {
+            registerGenericFamilyNative(genericFamily, systemFontMap.get(genericFamily));
+        }
+    }
+    
+    private static void deinit() {
+        sStyledTypefaceCache.clear();
+        Map<String, Typeface> map = sSystemFontMap;
+        if (map != null) {
+            map.clear();
+        }
+        SystemFonts.deinit();
+    }
+
+    public static void reload() {
+        deinit();
+        SystemFonts.reload();
+        HashMap<String, Typeface> systemFontMap = new HashMap<>();
+        initSystemDefaultTypefaces(systemFontMap, SystemFonts.getRawSystemFallbackMap(), SystemFonts.getAliases());
+        sSystemFontMap.putAll(systemFontMap);
+        setDefault(sSystemFontMap.get(DEFAULT_FAMILY));
+        NUBIA_DEFAULT = create(DEFAULT_FAMILY, 0);
+        NUBIA_DEFAULT_BOLD = create(DEFAULT_FAMILY, 1);
+        NUBIA_SANS_SERIF = create(DEFAULT_FAMILY, 0);
+        String str = null;
+        sDefaults = new Typeface[]{NUBIA_DEFAULT, NUBIA_DEFAULT_BOLD, create(str, 2), create(str, 3)};
+    }
+}
+
+```
+
+****************************************************************************************************

@@ -145,7 +145,7 @@ static size_t get_font_vector_offset()
                 std::vector<Font> mFonts;
             }; */
         case __ANDROID_API_P__: // 9
-            if (::strcasestr(brand_.c_str(), "HUAWEI") || ::strcasestr(brand_.c_str(), "HONOR"))
+            if (::strcasestr(manufacturer_.c_str(), "HUAWEI") || ::strcasestr(manufacturer_.c_str(), "HONOR"))
             {
                 offset = 0x00;
                 break;

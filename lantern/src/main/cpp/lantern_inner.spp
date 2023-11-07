@@ -74,6 +74,6 @@
 
 static int sdk_ver_ = 0;
 
-static std::string brand_;
+static std::string manufacturer_;
 
 static bool munmap_all_for_L_and_M = false;

@@ -58,14 +58,14 @@ static void get_fontnames_from_xml(JNIEnv* __env, std::set<std::string>& __names
 
 #if SPECIAL_MACHINE_ANDROID
 
-    if (::strcasestr(brand_.c_str(), "Meizu"))
+    if (::strcasestr(manufacturer_.c_str(), "Meizu"))
     {
         get_fontxml_for_meizu_from_java(__env, xmlfiles);
     }
-    else if (::strcasestr(brand_.c_str(), "OnePlus"))
+    else if (::strcasestr(manufacturer_.c_str(), "OnePlus"))
     {
         /*
-         Android 7.1
+         Android 7.1 8.1
          private static void init() {
             init(2);
             init(1);
@@ -147,18 +147,61 @@ static void get_fontnames_from_xml(JNIEnv* __env, std::set<std::string>& __names
                 is_initialized = true;
             }
         }
+
+         Android 9
+         static {
+            ArrayMap<String, Typeface> systemFontMap = new ArrayMap<>();
+            ArrayMap<String, FontFamily[]> systemFallbackMap = new ArrayMap<>();
+            buildSystemFallback("/system/etc/fonts_slate.xml", "/system/fonts/", systemFontMap, systemFallbackMap);
+            sSlateFontMap = new HashMap<>(Collections.unmodifiableMap(systemFontMap));
+            sSlateFallbackMap = new HashMap<>(Collections.unmodifiableMap(systemFallbackMap));
+            buildSystemFallback("/system/etc/fonts.xml", "/system/fonts/", systemFontMap, systemFallbackMap);
+            sOriginFontMap = new HashMap<>(Collections.unmodifiableMap(systemFontMap));
+            sOriginFallbackMap = new HashMap<>(Collections.unmodifiableMap(systemFallbackMap));
+            sSystemFontMap = (HashMap) sOriginFontMap.clone();
+            sSystemFallbackMap = (HashMap) sOriginFallbackMap.clone();
+            setDefault(sSystemFontMap.get(DEFAULT_FAMILY));
+            String str = null;
+            DEFAULT = create(str, 0);
+            DEFAULT_BOLD = create(str, 1);
+            SANS_SERIF = create(DEFAULT_FAMILY, 0);
+            SERIF = create("serif", 0);
+            MONOSPACE = create("monospace", 0);
+            sDefaults = new Typeface[]{DEFAULT, DEFAULT_BOLD, create(str, 2), create(str, 3)};
+        }
+
+         Android 11
+         Accessing hidden method Lcom/oneplus/theme/OpFontHelperInjector;->getSystemFontsXmlPath(Ljava/lang/String;)Ljava/lang/String; (blacklist, JNI, denied)
+         static {
+            ArrayMap<String, FontFamily[]> systemFallbackMap = new ArrayMap<>();
+            ArrayList<Font> availableFonts = new ArrayList<>();
+            FontCustomizationParser.Result oemCustomization = readFontCustomization("/product/etc/fonts_customization.xml", "/product/fonts/");
+            if (!OpFontHelperInjector.sFeatureEnable) {
+                sAliases = buildSystemFallback("/system/etc/fonts.xml", "/system/fonts/", oemCustomization, systemFallbackMap, availableFonts);
+            } else {
+                sAliases = buildSystemFallback(OpFontHelperInjector.getSystemFontsXmlPath("/system/etc/fonts.xml"), "/system/fonts/", oemCustomization, systemFallbackMap, availableFonts);
+            }
+            sSystemFallbackMap = Collections.unmodifiableMap(systemFallbackMap);
+            sAvailableFonts = Collections.unmodifiableList(availableFonts);
+        }
         */
-        if (sdk_ver_ == __ANDROID_API_N_MR1__)
+        if (sdk_ver_ >= __ANDROID_API_N__ && sdk_ver_ <= __ANDROID_API_P__)
         {
             ACCESS_XML(SYSTEM_ETC "fonts.xml", SYSTEM_FONTS, xmlfiles);
             ACCESS_XML(SYSTEM_ETC "fonts_slate.xml", SYSTEM_FONTS, xmlfiles);
         }
+        else if (sdk_ver_ == __ANDROID_API_Q__)
+        {
+            ACCESS_XML(SYSTEM_ETC "fonts.xml", SYSTEM_FONTS, xmlfiles);
+            ACCESS_XML(SYSTEM_ETC "fonts_slate.xml", SYSTEM_FONTS, xmlfiles);
+            ACCESS_XML(PRODUCT_ETC "fonts_customization.xml", PRODUCT_FONTS, xmlfiles);
+        }
     }
-    else if (::strcasestr(brand_.c_str(), "motorola"))
+    else if (::strcasestr(manufacturer_.c_str(), "motorola"))
     {
         get_fontxml_for_motorola_from_java(__env, xmlfiles);
     }
-    else if (::strcasestr(brand_.c_str(), "OPPO"))
+    else if (::strcasestr(manufacturer_.c_str(), "OPPO"))
     {
         if (sdk_ver_ == __ANDROID_API_R__)
         {
@@ -190,7 +233,7 @@ static void get_fontnames_from_xml(JNIEnv* __env, std::set<std::string>& __names
             get_fontxml_for_oppo_from_java(__env, xmlfiles);
         }
     }
-    else if (::strcasestr(brand_.c_str(), "lge") || ::strcasestr(brand_.c_str(), "MetroPCS"))
+    else if (::strcasestr(manufacturer_.c_str(), "lge") || ::strcasestr(manufacturer_.c_str(), "MetroPCS"))
     {
         get_fontxml_for_lge_from_java(__env, xmlfiles);
     }
@@ -218,12 +261,11 @@ static void get_fontnames_from_xml(JNIEnv* __env, std::set<std::string>& __names
 #endif
     {
         ACCESS_XML(SYSTEM_ETC "fonts.xml", SYSTEM_FONTS, xmlfiles);
-    }
 
-    // product
-    if (sdk_ver_ == __ANDROID_API_Q__ || sdk_ver_ == __ANDROID_API_R__)
-    {
-        ACCESS_XML(PRODUCT_ETC "fonts_customization.xml", PRODUCT_FONTS, xmlfiles);
+        if (sdk_ver_ == __ANDROID_API_Q__ || sdk_ver_ == __ANDROID_API_R__)
+        {
+            ACCESS_XML(PRODUCT_ETC "fonts_customization.xml", PRODUCT_FONTS, xmlfiles);
+        }
     }
 
     for (auto&& iter : xmlfiles)
