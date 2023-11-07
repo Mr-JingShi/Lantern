@@ -10,7 +10,7 @@
  * @param black_list : 字体库大小黑名单
  *
  * @remark App装载的且会创建文件映射到maps的字体库文件大小
- * @remark createFromFile方式加载字体库时会创建文件映射到maps
- * @remark createFromAsset方式加载字体库时会创建内存映射到maps
+ * @remark createFromFile方式加载字体库时会创建文件映射到maps，此方式加载的字体库文件大小应该加入到黑名单中
+ * @remark createFromAsset方式加载字体库时会创建内存映射到maps，此方式加载的字体库文件大小不需要加入到黑名单中
  */
 bool AndroidFontsExt_Install(JNIEnv* env, jint sdk_ver, jintArray black_list);

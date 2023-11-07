@@ -57,7 +57,7 @@ public class SampleApplication extends Application {
             InputStream stream = manager.open("fonts/DancingScript.ttf");
             Log.i(TAG, "SampleApplication " + stream.available());
 
-            black_list.add(stream.available());
+            // black_list.add(stream.available());
 
             stream.close();
         } catch (IOException e) {
