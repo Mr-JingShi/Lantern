@@ -67,10 +67,8 @@ static void munmap_fonts_maps(JNIEnv* __env, const std::unordered_map<void*, siz
                     iter = fontsMaps_.erase(iter);
                     continue;
                 }
-                else
-                {
-                    fontname2addr.insert({iter->second.pathname, iter->first});
-                }
+
+                fontname2addr.insert({iter->second.pathname, iter->first});
 
                 ++iter;
             }
@@ -102,26 +100,26 @@ static void munmap_fonts_maps(JNIEnv* __env, const std::unordered_map<void*, siz
         }
 
         iter->second.file_size = file_size;
-        ::munmap(reinterpret_cast<void*>(iter->first), iter->second.mmap_size);
+        ::munmap(reinterpret_cast<void*>(iter->first), file_size);
 
         ++iter;
     }
 }
 
-bool get_font_data_from_fontfamily(std::unordered_map<void*, size_t>& __fontData,
-                                   void* __fontFamily,
-                                   GetSkTypeface_t __GetSkTypeface,
-                                   openStream_t __openStream,
-                                   getMemoryBase_t __getMemoryBase,
-                                   getLength_t __getLength,
-                                   getNumFonts_t __getNumFonts,
-                                   getFont_t __getFont,
-                                   GetFontData_t __GetFontData,
-                                   GetFontSize_t __GetFontSize,
-                                   size_t __font_vector_step,
-                                   size_t __font_vector_offset,
-                                   std::set<void*>& __fontFamily_cache,
-                                   std::set<void*>& __font_cache)
+static bool get_font_data_from_fontfamily(std::unordered_map<void*, size_t>& __fontData,
+        void* __fontFamily,
+        GetSkTypeface_t __GetSkTypeface,
+        openStream_t __openStream,
+        getMemoryBase_t __getMemoryBase,
+        getLength_t __getLength,
+        getNumFonts_t __getNumFonts,
+        getFont_t __getFont,
+        GetFontData_t __GetFontData,
+        GetFontSize_t __GetFontSize,
+        size_t __font_vector_step,
+        size_t __font_vector_offset,
+        std::set<void*>& __fontFamily_cache,
+        std::set<void*>& __font_cache)
 {
     if (__fontFamily_cache.find(__fontFamily) != __fontFamily_cache.end())
     {
@@ -184,7 +182,7 @@ bool get_font_data_from_fontfamily(std::unordered_map<void*, size_t>& __fontData
     return true;
 }
 
-bool get_font_data_from_fontfamily_vector(std::unordered_map<void*, size_t>& __fontData,
+static bool get_font_data_from_fontfamily_vector(std::unordered_map<void*, size_t>& __fontData,
         void* __typeface_native,
         GetSkTypeface_t __GetSkTypeface,
         openStream_t __openStream,
@@ -234,7 +232,7 @@ bool get_font_data_from_fontfamily_vector(std::unordered_map<void*, size_t>& __f
     return true;
 }
 
-bool get_font_data(JNIEnv* __env, std::unordered_map<void*, size_t>& __fontData)
+static bool get_font_data(JNIEnv* __env, std::unordered_map<void*, size_t>& __fontData)
 {
     GetSkTypeface_t GetSkTypeface = nullptr;
     openStream_t openStream = nullptr;
@@ -589,11 +587,13 @@ bool AndroidFontsExt_Install(JNIEnv* __env, jint __sdk_ver, jintArray __black_li
     {
         HOOK_PARTIAL(libskia_filter, FT_Open_Face);
         HOOK_PARTIAL(libskia_filter, FT_New_Size);
+        HOOK_PARTIAL(libskia_filter, FT_Get_Char_Index);
     }
     else
     {
         HOOK_SINGLE("libhwui.so", FT_Open_Face);
         HOOK_SINGLE("libhwui.so", FT_New_Size);
+        HOOK_SINGLE("libhwui.so", FT_Get_Char_Index);
     }
 
     if (sdk_ver_ >= __ANDROID_API_N__)
@@ -635,7 +635,7 @@ bool AndroidFontsExt_Install(JNIEnv* __env, jint __sdk_ver, jintArray __black_li
 
         HOOK_SINGLE("libminikin.so", hb_blob_create);
 
-        if (/* sdk_ver_ >= __ANDROID_API_L__ && */sdk_ver_ <= __ANDROID_API_O_MR1__)
+        if (sdk_ver_ <= __ANDROID_API_O_MR1__)
         {
             HOOK_SINGLE("libminikin.so", hb_font_reference);
         }

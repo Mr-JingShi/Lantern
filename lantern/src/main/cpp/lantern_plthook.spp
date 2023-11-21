@@ -10,20 +10,22 @@
 
 /*
 * ===================================================================================================================================================================
-* API-LEVEL   VERSION   FT_Open_Face   FT_New_Size   hb_blob_create   hb_font_reference   hb_font_get_face   mmap         mmap64            munmap
+* API-LEVEL   VERSION   FT_Open_Face          hb_blob_create     hb_font_reference   hb_font_get_face   mmap         mmap64            munmap
+*                       FT_New_Size
+*                       FT_Get_Char_Index
 * ===================================================================================================================================================================
-* 21          5.0       libskia.so     libskia.so                                                            libskia.so                     libskia.so
-* 22          5.1       libskia.so     libskia.so                                                            libskia.so                     libskia.so
-* 23          6.0       libskia.so     libskia.so                                                            libskia.so                     libskia.so
+* 21          5.0       libskia.so                                                                      libskia.so                     libskia.so
+* 22          5.1       libskia.so                                                                      libskia.so                     libskia.so
+* 23          6.0       libskia.so                                                                      libskia.so                     libskia.so
 * -------------------------------------------------------------------------------------------------------------------------------------------------------------------
-* 24          7.0       libskia.so     libskia.so    libminikin.so    libminikin.so                                       libopenjdk.so
-* 25          7.1       libskia.so     libskia.so    libminikin.so    libminikin.so                                       libopenjdk.so
-* 26          8.0       libskia.so     libskia.so    libminikin.so    libminikin.so                                       libopenjdk.so
-* 27          8.1       libskia.so     libskia.so    libminikin.so    libminikin.so                                       libopenjdk.so
+* 24          7.0       libskia.so            libminikin.so       libminikin.so                                      libopenjdk.so
+* 25          7.1       libskia.so            libminikin.so       libminikin.so                                      libopenjdk.so
+* 26          8.0       libskia.so            libminikin.so       libminikin.so                                      libopenjdk.so
+* 27          8.1       libskia.so            libminikin.so       libminikin.so                                      libopenjdk.so
 * -------------------------------------------------------------------------------------------------------------------------------------------------------------------
-* 28          9         libhwui.so     libhwui.so    libminikin.so                        libminikin.so                   libopenjdk.so
-* 29          10        libhwui.so     libhwui.so    libminikin.so                        libminikin.so                   libopenjdk.so
-* 30          11        libhwui.so     libhwui.so    libminikin.so                        libminikin.so                   libopenjdk.so
+* 28          9         libhwui.so            libminikin.so                          libminikin.so                   libopenjdk.so
+* 29          10        libhwui.so            libminikin.so                          libminikin.so                   libopenjdk.so
+* 30          11        libhwui.so            libminikin.so                          libminikin.so                   libopenjdk.so
 * ===================================================================================================================================================================
 */
 
@@ -130,20 +132,18 @@ static void hooked_callback(bytehook_stub_t __task_stub, int __status_code, cons
         right = tmp; \
     }
 
-#define OFFSET_PTR_SAFE_SWAP(left, right, offset, type, name) \
+#define OFFSET_PTR_SAFE_SWAP(func, left, right, offset, type, name) \
     type* left_##name##_ptr = GET_OFFSET_PTR(left, offset, type*); \
     type* right_##name##_ptr = GET_OFFSET_PTR(right, offset, type*); \
-    LOG("FT_New_Size_proxy left_%s:%p right_%s:%p", #name, *left_##name##_ptr, #name, *right_##name##_ptr); \
+    LOG(#func " left_%s:%p right_%s:%p", #name, *left_##name##_ptr, #name, *right_##name##_ptr); \
     SAFE_SWAP(*left_##name##_ptr, *right_##name##_ptr, type);
 
 #define FT_FACE_SET_EXTENSIONS(face) \
     void** extensions_ptr = GET_OFFSET_PTR(face, FT_FACE_EXTERNSIONS_OFFSET, void**); \
     *extensions_ptr = reinterpret_cast<void*>(find_self_maps);
 
-static int FT_New_Size_proxy(void* __oldface, void** __asize)
+static void replace_face(void* __oldface)
 {
-    BYTEHOOK_STACK_SCOPE();
-
     void** extensions_ptr = GET_OFFSET_PTR(__oldface, FT_FACE_EXTERNSIONS_OFFSET, void**);
 
     if (*extensions_ptr == nullptr)
@@ -151,7 +151,7 @@ static int FT_New_Size_proxy(void* __oldface, void** __asize)
         void* stream = GET_OFFSET_DATA(__oldface, FT_FACE_STREAM_OFFSET, void**);
         // face->stream->base
         const char* stream_base = GET_OFFSET_DATA(stream, 0x00, const char**);
-        LOG("FT_New_Size_proxy face:%p stream_base:%p", __oldface, stream_base);
+        LOG("replace_face face:%p stream_base:%p", __oldface, stream_base);
         // face->stream->size
         unsigned int stream_size = GET_OFFSET_DATA(stream, 0x04, unsigned int*);
         const char* new_start = find_self_maps(stream_base, stream_size);
@@ -160,7 +160,7 @@ static int FT_New_Size_proxy(void* __oldface, void** __asize)
         {
             // face->face_index
             signed int face_index = GET_OFFSET_DATA(__oldface, 0x04, signed int*);
-            LOG("FT_New_Size_proxy face_index:%d", face_index);
+            LOG("replace_face face_index:%d", face_index);
             // face->driver
             void* driver = GET_OFFSET_DATA(__oldface, FT_FACE_DRIVER_OFFSET, void**);
 
@@ -171,29 +171,29 @@ static int FT_New_Size_proxy(void* __oldface, void** __asize)
 
             // face->driver->clazz->face_object_size offset --> open_face
             unsigned int face_size = GET_OFFSET_DATA(driver_clazz, 0x24, unsigned int*);
-            LOG("FT_New_Size_proxy face_size:%d", face_size);
+            LOG("replace_face face_size:%d", face_size);
 
             void* newface = nullptr;
             int error = FT_New_Memory_Face_(library, new_start, stream_size, face_index, &newface);
-            LOG("FT_New_Size_proxy newface:%p error:%d", newface, error);
+            LOG("replace_face newface:%p error:%d", newface, error);
 
             // swap face->face_flags
-            OFFSET_PTR_SAFE_SWAP(__oldface, newface, FT_FACE_FACE_FLAGS_OFFSET, signed int*, face_flags);
+            OFFSET_PTR_SAFE_SWAP(replace_face, __oldface, newface, FT_FACE_FACE_FLAGS_OFFSET, signed int*, face_flags);
             // get face->num_charmaps
             signed int num_charmaps = GET_OFFSET_DATA(__oldface, FT_FACE_NUM_CHARMAPS_OFFSET, signed int*);
-            LOG("FT_New_Size_proxy num_charmaps:%d", num_charmaps);
+            LOG("replace_face num_charmaps:%d", num_charmaps);
             // swap face->charmaps
-            OFFSET_PTR_SAFE_SWAP(__oldface, newface, FT_FACE_CHARMAPS_OFFSET, void**, charmaps);
+            OFFSET_PTR_SAFE_SWAP(replace_face, __oldface, newface, FT_FACE_CHARMAPS_OFFSET, void**, charmaps);
 
             for (int i = 0; i < num_charmaps; ++i)
             {
-                OFFSET_PTR_SAFE_SWAP((*left_charmaps_ptr)[i], (*right_charmaps_ptr)[i], 0x00, void*, charmaps_face);
+                OFFSET_PTR_SAFE_SWAP(replace_face, (*left_charmaps_ptr)[i], (*right_charmaps_ptr)[i], 0x00, void*, charmaps_face);
             }
 
             // swap face->charmap
-            OFFSET_PTR_SAFE_SWAP(__oldface, newface, FT_FACE_CHARMAP_OFFSET, void*, charmap);
+            OFFSET_PTR_SAFE_SWAP(replace_face, __oldface, newface, FT_FACE_CHARMAP_OFFSET, void*, charmap);
             // swap face->stream
-            OFFSET_PTR_SAFE_SWAP(__oldface, newface, FT_FACE_STREAM_OFFSET, void*, stream);
+            OFFSET_PTR_SAFE_SWAP(replace_face, __oldface, newface, FT_FACE_STREAM_OFFSET, void*, stream);
 
             // swap ttface
             size_t ttface_offset = face_size - FT_FACE_TTFACE_OFFSET;
@@ -213,8 +213,24 @@ static int FT_New_Size_proxy(void* __oldface, void** __asize)
         // modify face->extensions
         FT_FACE_SET_EXTENSIONS(__oldface);
     }
+}
 
-    return BYTEHOOK_CALL_PREV(FT_New_Size_proxy, __oldface, __asize);
+static int FT_New_Size_proxy(void* __face, void** __asize)
+{
+    BYTEHOOK_STACK_SCOPE();
+
+    replace_face(__face);
+
+    return BYTEHOOK_CALL_PREV(FT_New_Size_proxy, __face, __asize);
+}
+
+static unsigned int FT_Get_Char_Index_proxy(void* __face, unsigned long  charcode)
+{
+    BYTEHOOK_STACK_SCOPE();
+
+    replace_face(__face);
+
+    return BYTEHOOK_CALL_PREV(FT_Get_Char_Index_proxy, __face, charcode);
 }
 
 #define FT_OPEN_MEMORY    0x1
@@ -399,7 +415,7 @@ static bool check_blob_data_offset()
 
 #define MMAP(proxy, ret, __addr, __size, __prot, __flags, __fd, __offset) \
     std::set<void*> addrs; \
-    while (1) \
+    do \
     { \
         ret = BYTEHOOK_CALL_PREV(proxy, __addr, __size, __prot, __flags, __fd, __offset); \
         LOG(#proxy " ret:%p size:%zu, fd:%d", ret, __size, __fd); \
@@ -417,8 +433,8 @@ static bool check_blob_data_offset()
         } \
         LOG(#proxy " readlink file:%s", file); \
         if (::strcasestr(file, ".ttf") == nullptr \
-            || ::strcasestr(file, ".otf") == nullptr \
-            || ::strcasestr(file, ".ttc") == nullptr) \
+            && ::strcasestr(file, ".otf") == nullptr \
+            && ::strcasestr(file, ".ttc") == nullptr) \
         { \
             break; \
         } \
@@ -437,7 +453,7 @@ static bool check_blob_data_offset()
         } \
         LOG(#proxy " hit addr:%p", ret); \
         addrs.emplace(ret); \
-    } \
+    } while (1); \
     for (auto&& addr : addrs) \
     { \
         ::munmap(addr, __size); \
@@ -459,7 +475,7 @@ static void* mmap64_proxy(void* __addr, size_t __size, int __prot, int __flags, 
 
     void* ret = nullptr;
     MMAP(mmap64_proxy, ret, __addr, __size, __prot, __flags, __fd, __offset);
-    LOG("mmap_proxy ret:%p", ret);
+    LOG("mmap64_proxy ret:%p", ret);
     return ret;
 }
 

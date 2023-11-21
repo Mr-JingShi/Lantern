@@ -202,7 +202,7 @@ static const char* find_self_maps(const char* __memory_base, size_t __memory_siz
     void* addr = nullptr;
     std::set<void*> addrs;
 
-    while (1)
+    do
     {
         addr = mmap(nullptr, file_size, prot, flags, fd, 0);
 
@@ -229,7 +229,7 @@ static const char* find_self_maps(const char* __memory_base, size_t __memory_siz
         }
 
         addrs.emplace(addr);
-    }
+    } while (1);
 
     for (auto&& iter : addrs)
     {

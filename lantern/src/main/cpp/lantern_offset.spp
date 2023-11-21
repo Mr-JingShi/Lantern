@@ -24,15 +24,15 @@ static size_t get_fontFamily_vector_offset()
             offset = 0x08;
             break;
 
-            /* class MinikinRefCounted {
-                virtual ~MinikinRefCounted() { };
-                int mRefcount_;
-            };
-            class FontCollection : public MinikinRefCounted {
-                uint32_t mId;
-                uint32_t mMaxChar;
-                std::vector<FontFamily*> mFamilies;
-            }; */
+        /* class MinikinRefCounted {
+            virtual ~MinikinRefCounted() { };
+            int mRefcount_;
+        };
+        class FontCollection : public MinikinRefCounted {
+            uint32_t mId;
+            uint32_t mMaxChar;
+            std::vector<FontFamily*> mFamilies;
+        }; */
         case __ANDROID_API_N_MR1__: // 7.1
         case __ANDROID_API_N__: // 7.0
         case __ANDROID_API_M__: // 6.0
@@ -62,7 +62,7 @@ static size_t get_fontFamily_vector_step()
             step = 0x08;
             break;
 
-            // std::vector<FontFamily*> mFamilies;
+        // std::vector<FontFamily*> mFamilies;
         case __ANDROID_API_N_MR1__: // 7.1
         case __ANDROID_API_N__: // 7.0
         case __ANDROID_API_M__: // 6.0
@@ -70,11 +70,11 @@ static size_t get_fontFamily_vector_step()
             step = 0x04;
             break;
 
-            /* struct FontInstance {
-                SparseBitSet* mCoverage;
-                FontFamily* mFamily;
-            }; */
-            // std::vector<FontInstance> mInstances;
+        /* struct FontInstance {
+            SparseBitSet* mCoverage;
+            FontFamily* mFamily;
+        }; */
+        // std::vector<FontInstance> mInstances;
         case __ANDROID_API_L__: // 5.0
         default:
             step = 0x08;
@@ -98,7 +98,7 @@ static size_t get_fontFamily_offset()
         case __ANDROID_API_O_MR1__: // 8.1
         case __ANDROID_API_O__: // 8.0
 
-            // std::vector<FontFamily*> mFamilies;
+        // std::vector<FontFamily*> mFamilies;
         case __ANDROID_API_N_MR1__: // 7.1
         case __ANDROID_API_N__: // 7.0
         case __ANDROID_API_M__: // 6.0
@@ -106,11 +106,11 @@ static size_t get_fontFamily_offset()
             offset = 0x00;
             break;
 
-            /* struct FontInstance {
-                SparseBitSet* mCoverage;
-                FontFamily* mFamily;
-            }; */
-            // std::vector<FontInstance> mInstances;
+        /* struct FontInstance {
+            SparseBitSet* mCoverage;
+            FontFamily* mFamily;
+        }; */
+        // std::vector<FontInstance> mInstances;
         case __ANDROID_API_L__: // 5.0
         default:
             offset = 0x04;
@@ -139,31 +139,33 @@ static size_t get_font_vector_offset()
         }; */
         case __ANDROID_API_R__: // 11
         case __ANDROID_API_Q__: // 10
-            /* class FontFamily {
-                uint32_t mLangId;
-                int mVariant;
-                std::vector<Font> mFonts;
-            }; */
+        /* class FontFamily {
+            uint32_t mLangId;
+            int mVariant;
+            std::vector<Font> mFonts;
+        }; */
         case __ANDROID_API_P__: // 9
-            if (::strcasestr(manufacturer_.c_str(), "HUAWEI") || ::strcasestr(manufacturer_.c_str(), "HONOR"))
+#if SPECIAL_MACHINE_ANDROID
+            if (::strcasestr(manufacturer_.c_str(), "HUAWEI"))
             {
                 offset = 0x00;
                 break;
             }
+#endif
         case __ANDROID_API_O_MR1__: // 8.1
         case __ANDROID_API_O__: // 8.0
             offset = 0x08;
             break;
 
-            /* class MinikinRefCounted {
-                virtual ~MinikinRefCounted() { };
-                int mRefcount_;
-            };
-            class FontFamily : public MinikinRefCounted {
-                uint32_t mLangId;
-                int mVariant;
-                std::vector<Font> mFonts;
-            }; */
+        /* class MinikinRefCounted {
+            virtual ~MinikinRefCounted() { };
+            int mRefcount_;
+        };
+        class FontFamily : public MinikinRefCounted {
+            uint32_t mLangId;
+            int mVariant;
+            std::vector<Font> mFonts;
+        }; */
         case __ANDROID_API_N_MR1__: // 7.1
         case __ANDROID_API_N__: // 7.0
         case __ANDROID_API_M__: // 6.0
@@ -203,42 +205,42 @@ static size_t get_font_vector_step()
         case __ANDROID_API_Q__: // 10
         case __ANDROID_API_P__: // 9
 
-            /* class FontStyle {
-                uint32_t bits;
-                uint32_t mLanguageListId;
-            };
-            class Font {
-                std::shared_ptr<MinikinFont> typeface;
-                FontStyle style;
-            }; */
-            // std::vector<Font> mFonts;
+        /* class FontStyle {
+            uint32_t bits;
+            uint32_t mLanguageListId;
+        };
+        class Font {
+            std::shared_ptr<MinikinFont> typeface;
+            FontStyle style;
+        }; */
+        // std::vector<Font> mFonts;
         case __ANDROID_API_O_MR1__: // 8.1
         case __ANDROID_API_O__: // 8.0
             step = 0x10;
             break;
 
-            /* class FontStyle {
-                uint32_t bits;
-                uint32_t mLanguageListId;
-            };
-            class Font {
-                MinikinFont* typeface;
-                FontStyle style;
-            }; */
-            // std::vector<Font> mFonts;
+        /* class FontStyle {
+            uint32_t bits;
+            uint32_t mLanguageListId;
+        };
+        class Font {
+            MinikinFont* typeface;
+            FontStyle style;
+        }; */
+        // std::vector<Font> mFonts;
         case __ANDROID_API_N_MR1__: // 7.1
         case __ANDROID_API_N__: // 7.0
             step = 0x0c;
             break;
 
-            /* class FontStyle {
-                uint32_t bits;
-            };
-            class Font {
-                MinikinFont* typeface;
-                FontStyle style;
-            }; */
-            // std::vector<Font> mFonts;
+        /* class FontStyle {
+            uint32_t bits;
+        };
+        class Font {
+            MinikinFont* typeface;
+            FontStyle style;
+        }; */
+        // std::vector<Font> mFonts;
         case __ANDROID_API_M__: // 6.0
         case __ANDROID_API_L_MR1__: // 5.1
         case __ANDROID_API_L__: // 5.0
