@@ -145,6 +145,8 @@ static size_t get_font_vector_offset()
             std::vector<Font> mFonts;
         }; */
         case __ANDROID_API_P__: // 9
+        case __ANDROID_API_O_MR1__: // 8.1
+        case __ANDROID_API_O__: // 8.0
 #if SPECIAL_MACHINE_ANDROID
             if (::strcasestr(manufacturer_.c_str(), "HUAWEI"))
             {
@@ -152,8 +154,6 @@ static size_t get_font_vector_offset()
                 break;
             }
 #endif
-        case __ANDROID_API_O_MR1__: // 8.1
-        case __ANDROID_API_O__: // 8.0
             offset = 0x08;
             break;
 
