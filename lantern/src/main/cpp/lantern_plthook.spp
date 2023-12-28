@@ -13,6 +13,8 @@
 * API-LEVEL   VERSION   FT_Open_Face          hb_blob_create     hb_font_reference   hb_font_get_face   mmap         mmap64            munmap
 *                       FT_New_Size
 *                       FT_Get_Char_Index
+*                       FT_Load_Glyph
+*                       FT_Get_Advance
 * ===================================================================================================================================================================
 * 21          5.0       libskia.so                                                                      libskia.so                     libskia.so
 * 22          5.1       libskia.so                                                                      libskia.so                     libskia.so
@@ -224,13 +226,31 @@ static int FT_New_Size_proxy(void* __face, void** __asize)
     return BYTEHOOK_CALL_PREV(FT_New_Size_proxy, __face, __asize);
 }
 
-static unsigned int FT_Get_Char_Index_proxy(void* __face, unsigned long  charcode)
+static unsigned int FT_Get_Char_Index_proxy(void* __face, unsigned long __charcode)
 {
     BYTEHOOK_STACK_SCOPE();
 
     replace_face(__face);
 
-    return BYTEHOOK_CALL_PREV(FT_Get_Char_Index_proxy, __face, charcode);
+    return BYTEHOOK_CALL_PREV(FT_Get_Char_Index_proxy, __face, __charcode);
+}
+
+static unsigned int FT_Load_Glyph_proxy(void* __face, unsigned int __glyph_index, signed int __load_flags)
+{
+    BYTEHOOK_STACK_SCOPE();
+
+    replace_face(__face);
+
+    return BYTEHOOK_CALL_PREV(FT_Load_Glyph_proxy, __face, __glyph_index, __load_flags);
+}
+
+static unsigned int FT_Get_Advance_proxy(void* __face, unsigned int __gindex, signed int __load_flags, __signed long* __padvance)
+{
+    BYTEHOOK_STACK_SCOPE();
+
+    replace_face(__face);
+
+    return BYTEHOOK_CALL_PREV(FT_Get_Advance_proxy, __face, __gindex, __load_flags, __padvance);
 }
 
 #define FT_OPEN_MEMORY    0x1

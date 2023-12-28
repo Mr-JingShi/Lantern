@@ -148,7 +148,7 @@ static size_t get_font_vector_offset()
         case __ANDROID_API_O_MR1__: // 8.1
         case __ANDROID_API_O__: // 8.0
 #if SPECIAL_MACHINE_ANDROID
-            if (::strcasestr(manufacturer_.c_str(), "HUAWEI"))
+            if (::strcasestr(manufacturer_.c_str(), "HUAWEI") || ::strcasestr(manufacturer_.c_str(), "HONOR"))
             {
                 offset = 0x00;
                 break;

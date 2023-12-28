@@ -588,12 +588,16 @@ bool AndroidFontsExt_Install(JNIEnv* __env, jint __sdk_ver, jintArray __black_li
         HOOK_PARTIAL(libskia_filter, FT_Open_Face);
         HOOK_PARTIAL(libskia_filter, FT_New_Size);
         HOOK_PARTIAL(libskia_filter, FT_Get_Char_Index);
+        HOOK_PARTIAL(libskia_filter, FT_Load_Glyph);
+        HOOK_PARTIAL(libskia_filter, FT_Get_Advance);
     }
     else
     {
         HOOK_SINGLE("libhwui.so", FT_Open_Face);
         HOOK_SINGLE("libhwui.so", FT_New_Size);
         HOOK_SINGLE("libhwui.so", FT_Get_Char_Index);
+        HOOK_SINGLE("libhwui.so", FT_Load_Glyph);
+        HOOK_SINGLE("libhwui.so", FT_Get_Advance);
     }
 
     if (sdk_ver_ >= __ANDROID_API_N__)
