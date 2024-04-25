@@ -801,26 +801,6 @@ static void get_fontFamily_native_ptrs_from_java(JNIEnv* __env, const std::unord
     }
 }
 
-static void get_blacklist_from_java(JNIEnv* __env, jintArray __black_list, std::unordered_set<size_t>& __blacklist)
-{
-    javaExceptionGuard exceptionGuard(__env);
-
-    if (__black_list != nullptr)
-    {
-        jint* array = __env->GetIntArrayElements(__black_list, nullptr)JAVA_CHECK_RETURN(array)
-
-        jsize size = __env->GetArrayLength(__black_list)JAVA_EXCEPTION_RETURN()
-
-        for (jsize i = 0; i < size; ++i)
-        {
-            __blacklist.insert(static_cast<size_t>(array[i]));
-            LOG("blacklist:%zu", static_cast<size_t>(array[i]));
-        }
-
-        __env->ReleaseIntArrayElements(__black_list, array, 0);
-    }
-}
-
 static void get_fontFamily_native_ptrs_for_Q_and_R_from_java(JNIEnv* __env, std::set<void*>& __fontFamilies)
 {
     javaExceptionGuard exceptionGuard(__env);

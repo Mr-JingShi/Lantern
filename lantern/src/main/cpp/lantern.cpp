@@ -16,7 +16,7 @@
 #include "lantern_xml.spp"
 #include "lantern_log.spp"
 
-static void munmap_fonts_maps(JNIEnv* __env, const std::unordered_map<void*, size_t>& __fontData, const std::unordered_set<size_t>& __black_lists)
+static void munmap_fonts_maps(JNIEnv* __env, const std::unordered_map<void*, size_t>& __fontData)
 {
     if (!munmap_all_for_L_and_M)
     {
@@ -90,15 +90,6 @@ static void munmap_fonts_maps(JNIEnv* __env, const std::unordered_map<void*, siz
         }
 
         size_t file_size = static_cast<size_t>(st.st_size);
-
-        if (__black_lists.count(file_size) != 0)
-        {
-            LOG("munmap_fonts_maps filesize hit start:0x%x size:%zu path:%s", iter->first, file_size, iter->second.pathname.c_str());
-
-            iter = fontsMaps_.erase(iter);
-            continue;
-        }
-
         iter->second.file_size = file_size;
         ::munmap(reinterpret_cast<void*>(iter->first), file_size);
 
@@ -459,7 +450,7 @@ static bool get_font_data(JNIEnv* __env, std::unordered_map<void*, size_t>& __fo
     return !__fontData.empty();
 }
 
-bool AndroidFontsExt_Install(JNIEnv* __env, jint __sdk_ver, jintArray __black_list)
+bool AndroidFontsExt_Install(JNIEnv* __env, jint __sdk_ver)
 {
     if (__sdk_ver < __ANDROID_API_L__ || __sdk_ver > __ANDROID_API_R__)
     {
@@ -651,11 +642,7 @@ bool AndroidFontsExt_Install(JNIEnv* __env, jint __sdk_ver, jintArray __black_li
         CLOSE_HANDLE(libharfbuzz_ng); // 只是减少引用计数，并不会真正unload
     }
 
-    std::unordered_set<size_t> blacklist;
-
-    get_blacklist_from_java(__env, __black_list, blacklist);
-
-    munmap_fonts_maps(__env, fontData, blacklist);
+    munmap_fonts_maps(__env, fontData);
 
     LOG("AndroidFontsExt_Install end");
     return true;

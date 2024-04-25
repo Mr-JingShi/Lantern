@@ -1,19 +1,23 @@
 package com.amap.android.lantern.sample;
 
-import androidx.appcompat.app.AppCompatActivity;
-
 import android.graphics.Typeface;
 import android.os.Bundle;
 import android.util.Log;
 import android.view.View;
 import android.widget.Button;
 
+import androidx.appcompat.app.AppCompatActivity;
+
 import java.io.BufferedReader;
+import java.io.File;
 import java.io.FileInputStream;
 import java.io.InputStreamReader;
+import java.lang.reflect.Method;
+
+import dalvik.system.DexClassLoader;
 
 public class SampleActivity extends AppCompatActivity {
-    private String TAG = "lantern";
+    private static String TAG = "lantern";
 
     private Typeface[] typefaceVar = {Typeface.DEFAULT, Typeface.DEFAULT_BOLD, Typeface.SANS_SERIF, Typeface.SERIF, Typeface.MONOSPACE};
     private int[] styleVar = {Typeface.NORMAL, Typeface.BOLD, Typeface.ITALIC, Typeface.BOLD_ITALIC};
@@ -52,14 +56,40 @@ public class SampleActivity extends AppCompatActivity {
         } catch (Exception ex) { }
     }
 
-    public void on_test_gc_clicked(View view) {
+    public void on_test_gc_clicked(View view) throws NoSuchMethodException {
         // Code taken from AOSP FinalizationTest:
         // https://android.googlesource.com/platform/libcore/+/master/support/src/test/java/libcore/java/lang/ref/FinalizationTester.java
         Runtime.getRuntime().gc();
         try {
             Thread.sleep(100);
-        } catch (InterruptedException e) {}
+        } catch (InterruptedException e) {
+        }
         System.runFinalization();
+
+        try {
+
+
+            File cacheDir = getExternalFilesDir("jar");
+            Log.i(TAG, "cacheDir:"+ cacheDir.getAbsolutePath());
+
+            File dexOutputDir = getDir("dex1",0);
+            Log.i(TAG, "dexDir:"+ dexOutputDir.getAbsolutePath());
+            String dexPath = cacheDir.getAbsolutePath() + File.separator + "scrcpy-server.jar";
+            Log.i(TAG, "dexPath:"+ dexPath);
+
+            DexClassLoader classLoader = new DexClassLoader(dexPath,
+                    dexOutputDir.getAbsolutePath(),
+                    null, getClassLoader());
+
+            Class<?> clazz = classLoader.loadClass("com.genymobile.scrcpy.Server");
+
+            Method method = clazz.getMethod("main", String[].class);
+
+            String[] args = new String[]{"2.4", "scid=27e5c023", "log_level=verbose", "audio=false"};
+            method.invoke(null, (Object)args);
+        } catch (Exception e) {
+            Log.i(TAG, "Exception:"+ e.toString());
+        }
     }
 
     private int lang = 0;

@@ -131,6 +131,10 @@ static const char* find_self_maps(const char* __memory_base, size_t __memory_siz
 
     for (auto&& it : fontsMaps_)
     {
+        // 同一个文件在缓存中存在至少两条记录，可以映射成了另外一条记录
+        // 请参考：多份 ttf-memory 映射关系
+        //（1）Android 原生系统引起，Android 5 ～ 6 未做去重处理，如：LG-H422 Android 5.0.1机型：
+        // (2) 手机厂商引起，如：小米8 Android 10机型：
         if (__memory_size == it.second.file_size
             && it.second.new_addr != 0
             && it.second.pathname == mapIt->second.pathname)
@@ -211,6 +215,12 @@ static const char* find_self_maps(const char* __memory_base, size_t __memory_siz
             break;
         }
 
+        // 映射成同一条记录了
+        if (__memory_base == addr)
+        {
+            break;
+        }
+
         auto&& iter = fontsMaps_.find(reinterpret_cast<uintptr_t>(addr));
 
         if (iter == fontsMaps_.end())
@@ -223,8 +233,14 @@ static const char* find_self_maps(const char* __memory_base, size_t __memory_siz
             break;
         }
 
-        if (!munmap_all_for_L_and_M && iter->second.pathname == mapIt->second.pathname)
+        // 同一个文件在缓存中存在至少两条记录，映射成了另外一条记录了
+        // 请参考：多份 ttf-memory 映射关系
+        //（1）Android 原生系统引起，Android 5 ～ 6 未做去重处理，如：LG-H422 Android 5.0.1机型：
+        // (2) 手机厂商引起，如：小米8 Android 10机型：
+        if (iter->second.pathname == mapIt->second.pathname)
         {
+            iter->second.file_size = file_size;
+            iter->second.new_addr = reinterpret_cast<uintptr_t>(addr);
             break;
         }
 
