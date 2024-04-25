@@ -16,10 +16,10 @@
 
 #define LOG(fmt, ...) __android_log_print(ANDROID_LOG_INFO, HOOKER_TAG, fmt, ##__VA_ARGS__)
 
-static jboolean install(JNIEnv* env, jobject thiz, jint sdk_ver, jintArray black_list)
+static jboolean install(JNIEnv* env, jobject thiz, jint sdk_ver)
 {
     (void)thiz;
-    return AndroidFontsExt_Install(env, sdk_ver, black_list);
+    return AndroidFontsExt_Install(env, sdk_ver);
 }
 
 static void check(JNIEnv* env, jobject thiz)
@@ -130,7 +130,7 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* reserved)
 
     JNINativeMethod m[] =
     {
-        {"native_install", "(I[I)Z", (void*)install},
+        {"native_install", "(I)Z", (void*)install},
         {"native_check", "()V", (void*)check},
     };
 

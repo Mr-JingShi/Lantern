@@ -50,33 +50,7 @@ public class SampleApplication extends Application {
 
         Lantern.check();
 
-        ArrayList<Integer> black_list = new ArrayList<Integer>();
-
-        try {
-            AssetManager manager = getBaseContext().getAssets();
-            InputStream stream = manager.open("fonts/DancingScript.ttf");
-            Log.i(TAG, "SampleApplication " + stream.available());
-
-            // black_list.add(stream.available());
-
-            stream.close();
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-
-        // black_list.add(14904);
-
-        int[] array = new int[black_list.size()];
-        for(int i = 0; i < black_list.size(); i ++) {
-            array[i] = black_list.get(i).intValue();
-
-            Log.i(TAG, "SampleApplication " + array[i]);
-        }
-
-        // lantern.get_font_data();
-        // lantern.get_font_name();
-
-        Lantern.install(array);
+        Lantern.install();
     }
 
     @Override
